@@ -1,4 +1,7 @@
 <?php
+
+use Mdanter\Ecc\PrivateKey;
+use Mdanter\Ecc\PublicKey;
 /**
  * SERSH Payment Signer
  *
@@ -121,39 +124,51 @@ class Sersh_Payment_Signer {
      */
     private function sign_message($message_hash) {
         try {
-            // Remove '0x' prefix if present from private key
-            $private_key_hex = substr($this->private_key, 2);
+            if (!class_exists('\Mdanter\Ecc\EccFactory')) {
+                // Load Composer's autoloader if not already loaded
+                $autoloader = WC_SERSH_PLUGIN_DIR . 'vendor/autoload.php';
+                if (file_exists($autoloader)) {
+                    require_once $autoloader;
+                } else {
+                    throw new Exception('mdanter/ecc package not found. Please run composer install.');
+                }
+            }
 
-            // Initialize the generator and curve
-            $adapter = new \Mdanter\Ecc\Math\GmpMath();
-            $generator = \Mdanter\Ecc\Curves\CurveFactory::getGeneratorByName('secp256k1');
-            $curve = $generator->getCurve();
+            // Remove '0x' prefix if present from private key and message hash
+            $private_key_hex = substr($this->private_key, 2);
+            $message_hash = substr($message_hash, 0, 2) === '0x' ? substr($message_hash, 2) : $message_hash;
+
+            // Initialize the curve and math adapter
+            $adapter = \Mdanter\Ecc\EccFactory::getAdapter();
+            $generator = \Mdanter\Ecc\EccFactory::getSecgCurves()->generator256k1();
 
             // Create private key from hex
             $private_key = $adapter->hexDec($private_key_hex);
-            $key = new \Mdanter\Ecc\Crypto\Key\PrivateKey($generator, $private_key);
+            // $key = new PrivateKey($generator, $private_key);
+            $key = new PrivateKey(adapter: $adapter, secretMultiplier: $private_key, publicKey: $generator->getPublicKeyFrom($generator->getX(), $generator->getY(), $generator->getOrder()));
 
-            // Hash must be converted to decimal for signing
-            $hash = $adapter->hexDec($message_hash);
+            $bytes = random_bytes(4); // 32 bytes = 256 bits
+            $randomNumber = hexdec(bin2hex($bytes));
 
-            // Create a signer and generate the signature
-            $signer = new \Mdanter\Ecc\Crypto\Signature\Signer($adapter);
-            $signature = $signer->sign($key, $hash, $adapter->hexDec('1'));
 
-            // Get R and S values
-            $r = str_pad($adapter->decHex($signature->getR()), 64, '0', STR_PAD_LEFT);
-            $s = str_pad($adapter->decHex($signature->getS()), 64, '0', STR_PAD_LEFT);
+            $hashBinary = hex2bin($hashHex);
+            $signature = $key->sign($hashBinary,$randomNumber);  
 
             // Calculate recovery ID (v)
-            $recid = $this->calculate_recovery_id($message_hash, $r, $s, $key);
+            $recid = $this->calculate_recovery_id($hashBinary, $r, $s, $key);
             $v = dechex($recid + 27);
+
+            // Ensure v is padded to 2 characters
+            $v = str_pad($v, 2, '0', STR_PAD_LEFT);
 
             // Combine the signature parts
             $signature = '0x' . $r . $s . $v;
 
+            error_log('SERSH Payment - Message Hash: ' . $message_hash);
             error_log('SERSH Payment - R value: ' . $r);
             error_log('SERSH Payment - S value: ' . $s);
             error_log('SERSH Payment - V value: ' . $v);
+            error_log('SERSH Payment - Full signature: ' . $signature);
 
             return array(
                 'success' => true,
@@ -162,6 +177,7 @@ class Sersh_Payment_Signer {
 
         } catch (Exception $e) {
             error_log('SERSH Payment - Signing error: ' . $e->getMessage());
+            error_log('SERSH Payment - Signing error trace: ' . $e->getTraceAsString());
             return array(
                 'success' => false,
                 'error' => $e->getMessage()
@@ -169,18 +185,10 @@ class Sersh_Payment_Signer {
         }
     }
 
-    /**
-     * Calculate the recovery ID for the signature
-     *
-     * @param string $message_hash Message hash
-     * @param string $r R value in hex
-     * @param string $s S value in hex
-     * @param \Mdanter\Ecc\Crypto\Key\PrivateKey $private_key Private key
-     * @return int Recovery ID (0-3)
-     */
     private function calculate_recovery_id($message_hash, $r, $s, $private_key) {
-        $adapter = new \Mdanter\Ecc\Math\GmpMath();
-        $generator = \Mdanter\Ecc\Curves\CurveFactory::getGeneratorByName('secp256k1');
+        $adapter = \Mdanter\Ecc\EccFactory::getAdapter();
+        $generator = \Mdanter\Ecc\EccFactory::getSecgCurves()->generator256k1();
+
         
         // Get the public key point
         $public_key_point = $private_key->getPublicKey()->getPoint();
@@ -208,17 +216,7 @@ class Sersh_Payment_Signer {
         throw new Exception('Unable to find valid recovery ID');
     }
 
-    /**
-     * Recover the public key from signature components
-     *
-     * @param string $message_hash Message hash
-     * @param string $r R value in hex
-     * @param string $s S value in hex
-     * @param int $recid Recovery ID
-     * @param \Mdanter\Ecc\Primitives\GeneratorPoint $generator Curve generator
-     * @param \Mdanter\Ecc\Math\GmpMath $adapter Math adapter
-     * @return \Mdanter\Ecc\Primitives\PointInterface
-     */
+
     private function recover_public_key($message_hash, $r, $s, $recid, $generator, $adapter) {
         $curve = $generator->getCurve();
         $n = $generator->getOrder();
@@ -230,7 +228,7 @@ class Sersh_Payment_Signer {
 
         // Check if recovery ID is valid
         if ($recid < 0 || $recid > 3) {
-            throw new Exception('Invalid recovery ID');
+            throw new Exception(message: 'Invalid recovery ID');
         }
 
         // Calculate x coordinate
@@ -239,7 +237,7 @@ class Sersh_Payment_Signer {
         // Calculate R point
         $R = $curve->getPoint(
             $x,
-            $adapter->isEven($recid) ? $curve->recoverYfromX($x) : $curve->recoverYfromX($x)->negate()
+            $recid&1 ? $curve->recoverYfromX($x) : $curve->recoverYfromX($x)->negate()
         );
 
         // Calculate public key point
@@ -344,6 +342,26 @@ class Sersh_Payment_Signer {
     }
 
     /**
+     * Keccak-256 hash function as used by Ethereum
+     * 
+     * @param string $message The message to hash
+     * @return string The hash in hex format without 0x prefix
+     */
+    private function keccak256($message) {
+        if (!class_exists('\kornrunner\Keccak')) {
+            // Load Composer's autoloader if not already loaded
+            $autoloader = WC_SERSH_PLUGIN_DIR . 'vendor/autoload.php';
+            if (file_exists($autoloader)) {
+                require_once $autoloader;
+            } else {
+                throw new Exception('Keccak package not found. Please run composer install.');
+            }
+        }
+
+        return \kornrunner\Keccak::hash($message, 256);
+    }
+
+    /**
      * Encode a string parameter according to EIP-712
      * 
      * @param string $value The string to encode
@@ -352,7 +370,7 @@ class Sersh_Payment_Signer {
     private function encodeString($value) {
         // For EIP-712, we need to hash the string as keccak256(abi.encodePacked(value))
         $encoded = $this->abi_encode_packed($value);
-        return hash('sha3-256', $encoded);
+        return $this->keccak256($encoded);
     }
 
     /**
@@ -459,39 +477,41 @@ class Sersh_Payment_Signer {
             error_log('SERSH Payment - Using chain ID: ' . $chain_id);
 
             // EIP-712 domain hash
-            $domain_separator = hash('sha3-256', $this->abi_encode_packed(
-                hash('sha3-256', "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                $this->encodeString("SBoxSubscription"),
-                $this->encodeString("1"),
-                $this->numberToHex($chain_id),
-                $this->encodeAddress($contract_address)
+            $domain_type_hash = $this->keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+            error_log('SERSH Payment - Domain Type Hash: ' . $domain_type_hash);
+
+            $domain_separator = $this->keccak256($this->abi_encode_packed(
+                hex2bin($domain_type_hash),
+                hex2bin($this->encodeString("SBoxSubscription")),
+                hex2bin($this->encodeString("1")),
+                hex2bin($this->numberToHex($chain_id)),
+                hex2bin($this->encodeAddress($contract_address))
             ));
+            error_log('SERSH Payment - Domain Separator: ' . $domain_separator);
 
             // EIP-712 type hash
-            $type_hash = hash('sha3-256',
+            $type_hash = $this->keccak256(
                 "Payment(address user,string userId,uint256 amount,string nonce,uint256 expiry)"
             );
+            error_log('SERSH Payment - Type Hash: ' . $type_hash);
 
             // Encode the structured data
-            $encoded_data = $this->abi_encode_packed(
-                $type_hash,
-                $this->encodeAddress($user_address),
-                $this->encodeString($user_id),
-                $this->numberToHex($amount),
-                $this->encodeString($nonce),
-                $this->numberToHex($expiry)
-            );
+            $encoded_data = $this->keccak256($this->abi_encode_packed(
+                hex2bin($type_hash),
+                hex2bin($this->encodeAddress($user_address)),
+                hex2bin($this->encodeString($user_id)),
+                hex2bin($this->numberToHex($amount)),
+                hex2bin($this->encodeString($nonce)),
+                hex2bin($this->numberToHex($expiry))
+            ));
+            error_log('SERSH Payment - Encoded Data: ' . $encoded_data);
 
             // Final hash combining domain separator and encoded data
-            $message_hash = hash('sha3-256', $this->abi_encode_packed(
+            $message_hash = $this->keccak256($this->abi_encode_packed(
                 "\x19\x01",
                 hex2bin($domain_separator),
                 hex2bin($encoded_data)
             ));
-
-            error_log('SERSH Payment - Domain Separator: ' . $domain_separator);
-            error_log('SERSH Payment - Type Hash: ' . $type_hash);
-            error_log('SERSH Payment - Encoded Data: ' . bin2hex($encoded_data));
             error_log('SERSH Payment - Message Hash: ' . $message_hash);
             
             // Sign the message hash
