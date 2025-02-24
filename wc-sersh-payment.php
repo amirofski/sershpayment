@@ -32,6 +32,22 @@ define('WC_SERSH_MIN_WC_VERSION', '8.0');
 define('WC_SERSH_DEFAULT_TOKEN_ADDRESS', '0x7Db1F542Efe605F9181834B6B03d75ea72D80f5D');
 define('WC_SERSH_DEFAULT_PAYMENT_ADDRESS', '0x9e39212EbDB62fcd783DC4A2eFaE6d8d33914279');
 
+// Load Composer's autoloader
+$autoloader = WC_SERSH_PLUGIN_DIR . 'vendor/autoload.php';
+if (file_exists($autoloader)) {
+    require_once $autoloader;
+} else {
+    add_action('admin_notices', function() {
+        ?>
+        <div class="notice notice-error">
+            <p><?php _e('SERSH Payment Gateway: Required dependencies are missing. Please run composer install in the plugin directory.', 'sersh-payment'); ?></p>
+        </div>
+        <?php
+    });
+    return;
+}
+
+
 /**
  * Main SERSH Payment Gateway Class.
  */
