@@ -325,64 +325,21 @@ class Sersh_Payment_Signer {
                 $expiry,
                 $user_address
             ));
-
-            if (empty($this->private_key)) {
-                error_log('SERSH Payment - Private key not found');
-                throw new Exception('Private key not found. Please generate new keys in the gateway settings.');
+    
+            // Send the signature request
+            $response = $this->send_signature_request($user_id, $amount, $nonce, $expiry, $user_address);
+            
+            // Check if the request was successful
+            if (is_wp_error($response)) {
+                throw new Exception($response->get_error_message());
             }
 
-            // Get contract address and ensure it's valid
-            $settings = get_option('woocommerce_sersh_settings', array());
-            error_log('SERSH Payment - All settings: ' . print_r($settings, true));
-            
-            $contract_address = isset($settings['payment_address']) ? $settings['payment_address'] : '';
-            error_log('SERSH Payment - Contract address from settings: ' . ($contract_address ?: 'null'));
-            
-            if (empty($contract_address) || !$this->is_valid_address($contract_address)) {
-                error_log('SERSH Payment - Invalid contract address: ' . ($contract_address ?: 'empty'));
-                throw new Exception('SERSH Payment - Invalid contract address: ' . ($contract_address ?: 'empty') . $user_id. "-" . $amount. "-" . $nonce. "-" . $expiry. "-" . $user_address);
-            }
+            // Get the response body and decode JSON
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
 
-            // Get chain ID from settings
-            $chain_id = isset($settings['chain_id']) ? intval($settings['chain_id']) : 97; // BSC Testnet by default
-            error_log('SERSH Payment - Using chain ID: ' . $chain_id);
-
-            // EIP-712 domain hash
-            $domain_separator = hash('sha3-256', $this->abi_encode_packed(
-                hash('sha3-256', "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                hash('sha3-256', "SBoxSubscription"),
-                hash('sha3-256', "1"),
-                $this->numberToHex($chain_id),
-                $this->encodeAddress($contract_address)
-            ));
-
-            // EIP-712 type hash
-            $type_hash = hash('sha3-256',
-                "Payment(address user,string userId,uint256 amount,string nonce,uint256 expiry)"
-            );
-
-            // Encode the structured data
-            $encoded_data = $this->abi_encode_packed(
-                $type_hash,
-                $this->encodeAddress($user_address),
-                $this->encodeString($user_id),
-                $this->numberToHex($amount),
-                $this->encodeString($nonce),
-                $this->numberToHex($expiry)
-            );
-
-            // Final hash combining domain separator and encoded data
-            $message_hash = hash('sha3-256', $this->abi_encode_packed(
-                "\x19\x01",
-                hex2bin($domain_separator),
-                hex2bin($encoded_data)
-            ));
-            
-            // Sign the message hash
-            $signature_result = $this->sign_message($message_hash);
-            
-            if (!$signature_result['success']) {
-                throw new Exception($signature_result['error']);
+            if (empty($data)) {
+                throw new Exception('Invalid response from signature server');
             }
 
             error_log('SERSH Payment - Payment signature generated successfully');
@@ -390,11 +347,8 @@ class Sersh_Payment_Signer {
             return array(
                 'success' => true,
                 'data' => array(
-                    'userId' => $user_id,
-                    'amount' => $amount,
-                    'nonce' => $nonce,
-                    'expiry' => $expiry,
-                    'signature' => $signature_result['signature']
+                    'message' => $data['message'],
+                    'signature' => $data['signature']
                 )
             );
 
@@ -406,6 +360,25 @@ class Sersh_Payment_Signer {
             );
         }
     }
+
+    private function send_signature_request($user_id, $amount, $nonce, $expiry, $user_address) {
+        $response = wp_remote_post(
+            'https://api-w3.sglobal.io:3443/testing/subscription/create-saxess-signature',
+            array(
+                'method' => 'POST',
+                'body' => array(
+                    'userId' => $user_id,
+                    'price' => $amount,
+                    'nonce' => $nonce,
+                    'expiry' => $expiry,
+                    'address' => $user_address
+                )   
+            )
+        );
+
+        return $response;
+    }
+        
 
     /**
      * Validate Ethereum address format
