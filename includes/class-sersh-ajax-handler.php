@@ -60,9 +60,6 @@ class Sersh_Ajax_Handler {
      */
     public function get_payment_signature() {
         try {
-            // if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wc-sersh-payment-nonce')) {
-            //     throw new Exception(__('Invalid security token', 'wc-sersh-payment'));
-            // }
 
             if (!isset($_POST['user_address']) || !isset($_POST['amount'])) {
                 throw new Exception(__('Missing required parameters', 'wc-sersh-payment'));
@@ -76,35 +73,35 @@ class Sersh_Ajax_Handler {
             
             // Convert USD amount to SERSH tokens with live price
             try {
-                $token_amount = $gateway->convert_usd_to_tokens($usd_amount);
+                // $token_amount = $gateway->convert_usd_to_tokens($usd_amount);
                 
                 // Convert to Wei (multiply by 10^18)
-                $decimals = 18; // Standard ERC20 decimals
-                $amount_in_wei = bcmul(
-                    str_replace('.', '', number_format($token_amount, $decimals, '.', '')),
-                    '1',
-                    0
-                );
+                // $decimals = 18; // Standard ERC20 decimals
+                // $amount_in_wei = bcmul(
+                //     str_replace('.', '', number_format($token_amount, $decimals, '.', '')),
+                //     '1',
+                //     0
+                // );
 
                 // Convert large number to hex string without using dechex
-                $hex = '';
-                $num = $amount_in_wei;
-                while(bccomp($num, '0') > 0) {
-                    $mod = bcmod($num, '16');
-                    $hex = dechex(intval($mod)) . $hex;
-                    $num = bcdiv($num, '16', 0);
-                }
+                // $hex = '';
+                // $num = $amount_in_wei;
+                // while(bccomp($num, '0') > 0) {
+                //     $mod = bcmod($num, '16');
+                //     $hex = dechex(intval($mod)) . $hex;
+                //     $num = bcdiv($num, '16', 0);
+                // }
                 
-                $amount_hex = '0x' . $hex;
+                // $amount_hex = '0x' . $hex;
 
-                WC_Sersh_Payment::log(sprintf(
-                    'Token amount in Wei: %s (hex: %s) (original: %f)',
-                    $amount_in_wei,
-                    $amount_hex,
-                    $token_amount
-                ), 'debug');
+                // WC_Sersh_Payment::log(sprintf(
+                //     'Token amount in Wei: %s (hex: %s) (original: %f)',
+                //     $amount_in_wei,
+                //     $amount_hex,
+                //     $token_amount
+                // ), 'debug');
 
-                $token_amount = $amount_hex;
+                // $token_amount = $amount_hex;
 
             } catch (Exception $e) {
                 WC_Sersh_Payment::log('Price conversion failed: ' . $e->getMessage(), 'error');
