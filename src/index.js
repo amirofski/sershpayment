@@ -6,8 +6,8 @@ import { useEffect, useState, useCallback } from '@wordpress/element';
 import { decodeEntities } from '@wordpress/html-entities';
 import { registerPaymentMethod } from '@woocommerce/blocks-registry';
 import { useSelect } from '@wordpress/data';
-import PaymentABI from  './paymentABI.json';
-import ERC20ABI from  './erc20ABI.json';
+import PaymentABI from  '../assets/abi/paymentABI.json';
+import ERC20ABI from  '../assets/abi/erc20ABI.json';
 
 /**
  * Internal dependencies
@@ -229,7 +229,7 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
 
             // Explicitly save transaction hash via AJAX to ensure it's recorded properly
             try {
-                console.log('Saving transaction hash via AJAX:', tx.transactionHash, 'for order:', orderId);
+                // console.log('Saving transaction hash via AJAX:', tx.transactionHash, 'for order:', orderId);
                 const verifyResponse = await fetch(settings.ajaxUrl, {
                     method: 'POST',
                     headers: {
@@ -238,14 +238,13 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
                     body: new URLSearchParams({
                         action: 'wc_sersh_verify_payment',
                         nonce: settings.nonce,
-                        order_id: orderId, 
                         tx_hash: tx.transactionHash,
                         user_address: walletAddress
                     }),
                 });
                 
-                const verifyResult = await verifyResponse.json();
-                console.log('Transaction verification result:', verifyResult);
+                // const verifyResult = await verifyResponse.json();
+                // console.log('Transaction verification result:', verifyResult);
             } catch (verifyError) {
                 console.error('Error verifying transaction:', verifyError);
                 // Continue with checkout even if verification has an error
@@ -259,7 +258,7 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
                         user_address: walletAddress,
                         transaction_hash: tx.transactionHash,
                         user_id: message.userId,
-                        order_id: orderId.toString(), // Convert to string to ensure correct type
+                        // order_id: orderId.toString(), // Convert to string to ensure correct type
                     },
                 },
             };
