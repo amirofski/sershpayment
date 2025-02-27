@@ -222,6 +222,7 @@ jQuery(function($) {
 
         // New method to handle transaction hash saving
         async saveTransactionHash(event, orderData) {
+            console.log('saveTransactionHash', event, orderData);
             // If we're not on the SERSH payment, ignore
             if (!orderData || orderData.payment_method !== 'sersh') {
                 return;
@@ -243,7 +244,8 @@ jQuery(function($) {
                             action: 'wc_sersh_verify_payment',
                             nonce: wcSershPayment.nonce,
                             order_id: orderData.id,
-                            tx_hash: txHash
+                            tx_hash: txHash,
+                            user_address: this.walletAddress // Include the wallet address
                         },
                         success: function(response) {
                             console.log('Transaction verification response:', response);
@@ -257,6 +259,45 @@ jQuery(function($) {
                 console.error('Error saving transaction hash:', error);
             }
         }
+
+        // async getPaymentSignature(amount) {
+        //     try {
+        //         // Get the current order ID if possible
+        //         let orderId = null;
+        //         const orderIdField = $('input[name="order_id"]');
+        //         if (orderIdField.length) {
+        //             orderId = orderIdField.val();
+        //         }
+                
+        //         // Request payment signature
+        //         const response = await fetch(wcSershPayment.ajaxUrl, {
+        //             method: 'POST',
+        //             headers: {
+        //                 'Content-Type': 'application/x-www-form-urlencoded',
+        //             },
+        //             body: new URLSearchParams({
+        //                 action: 'wc_sersh_get_payment_signature',
+        //                 user_address: this.walletAddress,
+        //                 amount: amount,
+        //                 order_id: orderId // Include the actual order ID if available
+        //             })
+        //         });
+                
+        //         if (!response.ok) {
+        //             throw new Error('Failed to get payment signature');
+        //         }
+                
+        //         const result = await response.json();
+        //         if (!result.success) {
+        //             throw new Error(result.data || 'Error getting payment signature');
+        //         }
+                
+        //         return result.data;
+        //     } catch (error) {
+        //         console.error('Error getting payment signature:', error);
+        //         throw error;
+        //     }
+        // }
     }
 
     // Initialize the checkout

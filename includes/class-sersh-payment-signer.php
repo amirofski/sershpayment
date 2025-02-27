@@ -209,32 +209,32 @@ class Sersh_Payment_Signer {
      * @param mixed ...$args The arguments to encode
      * @return string The encoded data
      */
-    private function abi_encode_packed(...$args) {
-        $encoded = '';
+    // private function abi_encode_packed(...$args) {
+    //     $encoded = '';
         
-        foreach ($args as $arg) {
-            if (is_string($arg)) {
-                // Check if it's a hex string (address or bytes)
-                if (strpos($arg, '0x') === 0) {
-                    $hex = substr($arg, 2);
-                    // Ensure even length
-                    if (strlen($hex) % 2 !== 0) {
-                        $hex = '0' . $hex;
-                    }
-                    $encoded .= hex2bin($hex);
-                } else {
-                    // Regular string
-                    $encoded .= $arg;
-                }
-            } else if (is_int($arg) || is_numeric($arg)) {
-                // Convert number to 32 bytes
-                $hex = $this->numberToHex($arg);
-                $encoded .= hex2bin($hex);
-            }
-        }
+    //     foreach ($args as $arg) {
+    //         if (is_string($arg)) {
+    //             // Check if it's a hex string (address or bytes)
+    //             if (strpos($arg, '0x') === 0) {
+    //                 $hex = substr($arg, 2);
+    //                 // Ensure even length
+    //                 if (strlen($hex) % 2 !== 0) {
+    //                     $hex = '0' . $hex;
+    //                 }
+    //                 $encoded .= hex2bin($hex);
+    //             } else {
+    //                 // Regular string
+    //                 $encoded .= $arg;
+    //             }
+    //         } else if (is_int($arg) || is_numeric($arg)) {
+    //             // Convert number to 32 bytes
+    //             $hex = $this->numberToHex($arg);
+    //             $encoded .= hex2bin($hex);
+    //         }
+    //     }
         
-        return $encoded;
-    }
+    //     return $encoded;
+    // }
 
     /**
      * Convert a number to hex representation
@@ -290,9 +290,9 @@ class Sersh_Payment_Signer {
      * @param string $value The string to encode
      * @return string The encoded string
      */
-    private function encodeString($value) {
-        return hash('sha3-256', $value);
-    }
+    // private function encodeString($value) {
+    //     return hash('sha3-256', $value);
+    // }
 
     /**
      * Encode an address parameter according to EIP-712
@@ -300,10 +300,10 @@ class Sersh_Payment_Signer {
      * @param string $address The Ethereum address
      * @return string The encoded address
      */
-    private function encodeAddress($address) {
-        // Remove '0x' prefix if present and pad to 32 bytes
-        return str_pad(substr($address, 2), 64, '0', STR_PAD_LEFT);
-    }
+    // private function encodeAddress($address) {
+    //     // Remove '0x' prefix if present and pad to 32 bytes
+    //     return str_pad(substr($address, 2), 64, '0', STR_PAD_LEFT);
+    // }
 
     /**
      * Generate signature for payment

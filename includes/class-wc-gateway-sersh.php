@@ -108,13 +108,13 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         // Get settings values
         $this->title              = $this->get_option('title');
         $this->description        = $this->get_option('description');
-        $this->enabled           = $this->get_option('enabled');
-        $this->testmode          = 'yes' === $this->get_option('testmode');
-        $this->token_address     = $this->get_option('token_address', WC_SERSH_DEFAULT_TOKEN_ADDRESS);
-        $this->payment_address   = $this->get_option('payment_address', WC_SERSH_DEFAULT_PAYMENT_ADDRESS);
-        $this->merchant_address  = $this->get_option('merchant_address');
-        $this->price_feed_url    = $this->get_option('price_feed_url');
-        $this->trusted_signer      = $this->get_option('trusted_signer');
+        $this->enabled            = $this->get_option('enabled');
+        $this->testmode           = 'yes' === $this->get_option('testmode');
+        $this->token_address      = $this->get_option('token_address', WC_SERSH_DEFAULT_TOKEN_ADDRESS);
+        $this->payment_address    = $this->get_option('payment_address', WC_SERSH_DEFAULT_PAYMENT_ADDRESS);
+        $this->merchant_address   = $this->get_option('merchant_address');
+        $this->price_feed_url     = $this->get_option('price_feed_url');
+        $this->trusted_signer     = $this->get_option('trusted_signer');
         
         // Hooks
         add_action('woocommerce_update_options_payment_gateways_' . $this->id, array($this, 'process_admin_options'));
@@ -520,62 +520,62 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
      * @param string $url Price feed URL.
      * @return bool
      */
-    private function validate_price_feed_url($url) {
-        // WC_Sersh_Payment::log('Validating price feed URL: ' . $url, 'debug');
+    // private function validate_price_feed_url($url) {
+    //     // WC_Sersh_Payment::log('Validating price feed URL: ' . $url, 'debug');
 
-        try {
-            $response = wp_remote_get($url, array(
-                'timeout'     => 15,
-                'user-agent'  => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
-                'headers'     => array('Accept' => 'application/json'),
-            ));
+    //     try {
+    //         $response = wp_remote_get($url, array(
+    //             'timeout'     => 15,
+    //             'user-agent'  => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
+    //             'headers'     => array('Accept' => 'application/json'),
+    //         ));
 
-            if (is_wp_error($response)) {
-                throw new Exception($response->get_error_message());
-            }
+    //         if (is_wp_error($response)) {
+    //             throw new Exception($response->get_error_message());
+    //         }
 
-            $body = wp_remote_retrieve_body($response);
-            $data = json_decode($body, true);
+    //         $body = wp_remote_retrieve_body($response);
+    //         $data = json_decode($body, true);
 
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new Exception(__('Invalid JSON response from price feed API.', 'wc-sersh-payment'));
-            }
+    //         if (json_last_error() !== JSON_ERROR_NONE) {
+    //             throw new Exception(__('Invalid JSON response from price feed API.', 'wc-sersh-payment'));
+    //         }
 
-            if (!isset($data['quotes']) || !is_array($data['quotes']) || empty($data['quotes'])) {
-                throw new Exception(__('Price feed API response does not contain required quotes data.', 'wc-sersh-payment'));
-            }
+    //         if (!isset($data['quotes']) || !is_array($data['quotes']) || empty($data['quotes'])) {
+    //             throw new Exception(__('Price feed API response does not contain required quotes data.', 'wc-sersh-payment'));
+    //         }
 
-            // Get the USD quote
-            $usd_quote = null;
-            foreach ($data['quotes'] as $quote) {
-                if (isset($quote['currency']) && $quote['currency'] === 'USD' && isset($quote['price'])) {
-                    $usd_quote = $quote;
-                    break;
-                }
-            }
+    //         // Get the USD quote
+    //         $usd_quote = null;
+    //         foreach ($data['quotes'] as $quote) {
+    //             if (isset($quote['currency']) && $quote['currency'] === 'USD' && isset($quote['price'])) {
+    //                 $usd_quote = $quote;
+    //                 break;
+    //             }
+    //         }
 
-            if (!$usd_quote) {
-                throw new Exception(__('Price feed API response does not contain USD price data.', 'wc-sersh-payment'));
-            }
+    //         if (!$usd_quote) {
+    //             throw new Exception(__('Price feed API response does not contain USD price data.', 'wc-sersh-payment'));
+    //         }
 
-            WC_Admin_Settings::add_message(sprintf(
-                /* translators: %s: Current price */
-                __('Price feed API connection successful. Current SERSH price: $%s', 'wc-sersh-payment'),
-                number_format((float) $usd_quote['price'], 4)
-            ));
+    //         WC_Admin_Settings::add_message(sprintf(
+    //             /* translators: %s: Current price */
+    //             __('Price feed API connection successful. Current SERSH price: $%s', 'wc-sersh-payment'),
+    //             number_format((float) $usd_quote['price'], 4)
+    //         ));
 
-            WC_Sersh_Payment::log('Price feed validation successful', 'info');
-            return true;
+    //         WC_Sersh_Payment::log('Price feed validation successful', 'info');
+    //         return true;
 
-        } catch (Exception $e) {
-            WC_Sersh_Payment::log('Price feed validation failed: ' . $e->getMessage(), 'error');
-            WC_Admin_Settings::add_error(sprintf(
-                __('Price feed validation failed: %s', 'wc-sersh-payment'),
-                $e->getMessage()
-            ));
-            return false;
-        }
-    }
+    //     } catch (Exception $e) {
+    //         WC_Sersh_Payment::log('Price feed validation failed: ' . $e->getMessage(), 'error');
+    //         WC_Admin_Settings::add_error(sprintf(
+    //             __('Price feed validation failed: %s', 'wc-sersh-payment'),
+    //             $e->getMessage()
+    //         ));
+    //         return false;
+    //     }
+    // }
 
     /**
      * Process Payment
@@ -585,15 +585,81 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
      */
     public function process_payment($order_id) {
         try {
+
+            WC_Sersh_Payment::log('process_payment: ' . $order_id, 'debug');
             $order = wc_get_order($order_id);
             
             if (!$order) {
                 throw new Exception(__('Order not found', 'wc-sersh-payment'));
             }
 
+            // verify payment by orderid
+            // $handler = new Sersh_Ajax_Handler();
+            // $payment_verified = $handler->verify_payment($order_id);
+            // if (!$payment_verified) {
+            //     throw new Exception(__('Payment verification failed', 'wc-sersh-payment'));
+            // }
+
             if (!$this->merchant_address) {
                 throw new Exception(__('Merchant address not configured.', 'wc-sersh-payment'));
             }
+
+            // print the tx_hash and wallet_address from the session
+            WC_Sersh_Payment::log('tx_hash: ' . WC()->session->get('sersh_tx_hash'), 'debug');
+            WC_Sersh_Payment::log('wallet_address: ' . WC()->session->get('sersh_wallet_address'), 'debug');
+
+            $wallet_address = WC()->session->get('sersh_wallet_address');
+            $tx_hash = WC()->session->get('sersh_tx_hash');
+            // Get customer information
+            $customer_data = array();
+            if (WC()->customer) {
+                $customer_data = array(
+                    'billing_first_name' => WC()->customer->get_billing_first_name(),
+                    'billing_last_name' => WC()->customer->get_billing_last_name(),
+                    'billing_company' => WC()->customer->get_billing_company(),
+                    'billing_address_1' => WC()->customer->get_billing_address_1(),
+                    'billing_address_2' => WC()->customer->get_billing_address_2(),
+                    'billing_city' => WC()->customer->get_billing_city(),
+                    'billing_state' => WC()->customer->get_billing_state(),
+                    'billing_postcode' => WC()->customer->get_billing_postcode(),
+                    'billing_country' => WC()->customer->get_billing_country(),
+                    'billing_email' => WC()->customer->get_billing_email(),
+                    'billing_phone' => WC()->customer->get_billing_phone(),
+                    'shipping_first_name' => WC()->customer->get_shipping_first_name(),
+                    'shipping_last_name' => WC()->customer->get_shipping_last_name(),
+                    'shipping_company' => WC()->customer->get_shipping_company(),
+                    'shipping_address_1' => WC()->customer->get_shipping_address_1(),
+                    'shipping_address_2' => WC()->customer->get_shipping_address_2(),
+                    'shipping_city' => WC()->customer->get_shipping_city(),
+                    'shipping_state' => WC()->customer->get_shipping_state(),
+                    'shipping_postcode' => WC()->customer->get_shipping_postcode(),
+                    'shipping_country' => WC()->customer->get_shipping_country(),
+                );
+            }
+            
+            // Ensure we have at least an email address for the order
+            if (empty($customer_data['billing_email']) && WC()->session) {
+                $customer = WC()->session->get('customer');
+                if (!empty($customer['email'])) {
+                    $customer_data['billing_email'] = $customer['email'];
+                }
+            }
+            
+            // If we still don't have an email and user is logged in, use their account email
+            if (empty($customer_data['billing_email']) && is_user_logged_in()) {
+                $current_user = wp_get_current_user();
+                $customer_data['billing_email'] = $current_user->user_email;
+                
+                // If we don't have a name, use their account name
+                if (empty($customer_data['billing_first_name'])) {
+                    $customer_data['billing_first_name'] = $current_user->first_name;
+                    $customer_data['billing_last_name'] = $current_user->last_name;
+                }
+            }
+            
+            // Set payment method to SERSH
+            $customer_data['payment_method'] = 'sersh';
+
 
             // Get current price and calculate token amount
             $token_amount = $this->calculate_token_amount($order->get_total());
@@ -604,15 +670,22 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             $order->update_meta_data('_sersh_merchant_address', $this->merchant_address);
             $order->update_meta_data('_sersh_token_address', $this->token_address);
             $order->update_meta_data('_sersh_payment_initiated', current_time('mysql'));
+            // Set the transaction ID on the current order
+            $order->set_transaction_id($tx_hash);
+            // Add order note about the transaction hash
+            $order->add_order_note(sprintf(
+                __('SERSH blockchain transaction hash: %s', 'wc-sersh-payment'),
+                $tx_hash
+            ));
             
             // Store payer's wallet address if provided
-            if (!empty($_POST['sersh_payer_wallet'])) {
-                $payer_wallet = sanitize_text_field($_POST['sersh_payer_wallet']);
+            if (!empty($wallet_address)) {
+                $payer_wallet = sanitize_text_field($wallet_address);
                 $order->update_meta_data('_sersh_payer_wallet', $payer_wallet);
                 $order->add_order_note(sprintf(
                     __('Payer wallet address: %s', 'wc-sersh-payment'),
                     $payer_wallet
-                ));
+                ));            
             }
             
             // Add order note about payment initiation
@@ -637,6 +710,7 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
                 'pending',
                 __('Awaiting SERSH token payment confirmation.', 'wc-sersh-payment')
             );
+
 
             // Save all changes
             $order->save();
@@ -739,7 +813,7 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         if ('yes' === $this->get_option('debug')) {
             wc_get_logger()->debug(
                 sprintf(
-                    'Price conversion: %f USD = %f SERSH (price: %f USD/SERSH)',
+                    'calculate_token_amount:Price conversion: %f USD = %f SERSH (price: %f USD/SERSH)',
                     $order_total,
                     $token_amount,
                     $token_price
@@ -1223,45 +1297,6 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         return ob_get_clean();
     }
 
-    private function init_gateway_settings() {
-        // Get gateway settings
-        $settings = get_option('woocommerce_sersh_settings', array());
-
-        // Set default settings if not exists
-        if (empty($settings)) {
-            $default_settings = array(
-                'enabled'          => 'yes',
-                'title'           => __('SERSH Token Payment', 'wc-sersh-payment'),
-                'description'     => __('Pay with SERSH tokens via MetaMask or other Web3 wallet.', 'wc-sersh-payment'),
-                'testmode'        => 'yes',
-                'debug'           => 'yes',
-                'token_address'   => WC_SERSH_DEFAULT_TOKEN_ADDRESS,
-                'payment_address' => WC_SERSH_DEFAULT_PAYMENT_ADDRESS,
-                'private_key'     => 'b5c6bea4b1c7677f64569a3401c520c8be6df7ffd1f29deb822ced0837059fee',
-                'public_key'      => '0x2ba400efb7bC1bbd9786444e04f5ED28F8CDF14c',
-                'transfer_event_signature' => '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
-            );
-
-            update_option('woocommerce_sersh_settings', $default_settings);
-        } else {
-            // Ensure default keys exist
-            if (empty($settings['private_key'])) {
-                $settings['private_key'] = 'b5c6bea4b1c7677f64569a3401c520c8be6df7ffd1f29deb822ced0837059fee';
-                $settings['public_key'] = '0x2ba400efb7bC1bbd9786444e04f5ED28F8CDF14c';
-                update_option('woocommerce_sersh_settings', $settings);
-            }
-            
-            // Ensure transfer event signature exists
-            if (empty($settings['transfer_event_signature'])) {
-                $settings['transfer_event_signature'] = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-                update_option('woocommerce_sersh_settings', $settings);
-            }
-        }
-
-        // Register gateway settings
-        add_filter('woocommerce_get_settings_checkout', array($this, 'add_gateway_settings'), 10, 2);
-    }
-
     /**
      * Convert USD amount to SERSH tokens
      *
@@ -1325,7 +1360,7 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             if ('yes' === $this->get_option('debug')) {
                 wc_get_logger()->debug(
                     sprintf(
-                        'Price conversion: %f USD = %s SERSH (price: %f USD/SERSH)',
+                        'convert_usd_to_tokens:Price conversion: %f USD = %s SERSH (price: %f USD/SERSH)',
                         $usd_amount,
                         $formatted_amount,
                         $token_price

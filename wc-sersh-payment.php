@@ -115,10 +115,7 @@ final class WC_Sersh_Payment {
         // Register scripts and styles
         add_action('wp_enqueue_scripts', array($this, 'register_scripts'));
         
-        // Initialize gateway settings
-        $this->init_gateway_settings();
-
-        // Initialize AJAX handler
+        // Initialize AJAX handler (which also initializes settings)
         new Sersh_Ajax_Handler();
 
         // Register Block Support
@@ -157,81 +154,6 @@ final class WC_Sersh_Payment {
         }
 
         return true;
-    }
-
-    /**
-     * Initialize gateway settings.
-     */
-    private function init_gateway_settings() {
-        // Get gateway settings
-        $settings = get_option('woocommerce_sersh_settings', array());
-
-        // Set default settings if not exists
-        if (empty($settings)) {
-            $default_settings = array(
-                'enabled'          => 'yes',
-                'title'           => __('SERSH Token Payment', 'wc-sersh-payment'),
-                'description'     => __('Pay with SERSH tokens via MetaMask or other Web3 wallet.', 'wc-sersh-payment'),
-                'testmode'        => 'yes',
-                'debug'           => 'yes',
-                'token_address'   => WC_SERSH_DEFAULT_TOKEN_ADDRESS,
-                'payment_address' => WC_SERSH_DEFAULT_PAYMENT_ADDRESS,
-            );
-
-            update_option('woocommerce_sersh_settings', $default_settings);
-        }
-
-        // Register gateway settings
-        add_filter('woocommerce_get_settings_checkout', array($this, 'add_gateway_settings'), 10, 2);
-    }
-
-    /**
-     * Add gateway settings to WooCommerce settings.
-     *
-     * @param array  $settings Original settings.
-     * @param string $current_section Current section.
-     * @return array
-     */
-    public function add_gateway_settings($settings, $current_section) {
-        if ('sersh' === $current_section) {
-            $settings = array();
-            // Settings will be handled by the gateway class
-        }
-        return $settings;
-    }
-
-    /**
-     * Add gateway to WooCommerce.
-     *
-     * @param array $methods Payment methods.
-     * @return array
-     */
-    public function add_gateway($methods) {
-        if ($this->check_environment()) {
-            // Initialize Web3 provider check
-            add_action('wp_footer', array($this, 'check_web3_provider'));
-            
-            $methods[] = 'WC_Gateway_Sersh';
-        }
-        return $methods;
-    }
-
-    /**
-     * Check Web3 provider availability.
-     */
-    public function check_web3_provider() {
-        if (!is_checkout()) {
-            return;
-        }
-
-        wp_add_inline_script('wc-sersh-payment', '
-            jQuery(function($) {
-                if (typeof window.ethereum === "undefined") {
-                    $("input[value=\'sersh\']").closest("li").hide();
-                    console.warn("MetaMask not detected. SERSH payment method hidden.");
-                }
-            });
-        ');
     }
 
     /**
@@ -514,6 +436,40 @@ final class WC_Sersh_Payment {
         }
 
         $logger->log($level, $message, $context);
+    }
+
+    /**
+     * Add gateway to WooCommerce payment methods.
+     *
+     * @param array $methods Payment methods.
+     * @return array Modified payment methods.
+     */
+    public function add_gateway($methods) {
+        if ($this->check_environment()) {
+            // Initialize Web3 provider check
+            add_action('wp_footer', array($this, 'check_web3_provider'));
+            
+            $methods[] = 'WC_Gateway_Sersh';
+        }
+        return $methods;
+    }
+
+    /**
+     * Check Web3 provider availability.
+     */
+    public function check_web3_provider() {
+        if (!is_checkout()) {
+            return;
+        }
+
+        wp_add_inline_script('wc-sersh-payment', '
+            jQuery(function($) {
+                if (typeof window.ethereum === "undefined") {
+                    $("input[value=\'sersh\']").closest("li").hide();
+                    console.warn("MetaMask not detected. SERSH payment method hidden.");
+                }
+            });
+        ');
     }
 }
 

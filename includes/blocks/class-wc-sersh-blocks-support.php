@@ -34,9 +34,18 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
      * @param string $level   Log level
      */
     public static function log($message, $level = 'info') {
-        if (class_exists('WC_Sersh_Payment')) {
-            WC_Sersh_Payment::log($message, $level);
+        if (!function_exists('wc_get_logger')) {
+            return;
         }
+
+        $logger = wc_get_logger();
+        $context = array('source' => 'sersh-payment');
+
+        if (is_array($message) || is_object($message)) {
+            $message = print_r($message, true);
+        }
+
+        $logger->log($level, $message, $context);
     }
 
     /**
@@ -192,6 +201,17 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
      */
     public function process_payment($context, $result) {
         try {
+
+            //print the context
+            WC_Sersh_Blocks_Support::log(
+                'process_payment::Blocks checkout payment context',
+                'debug'
+            );
+            // print the result
+            WC_Sersh_Blocks_Support::log(
+                'Blocks checkout payment result: ' . json_encode($result),
+                'debug'
+            );
             // Extract wallet address from payment data if available
             $payment_data = $context->payment_data;
             $wallet_address = null;
