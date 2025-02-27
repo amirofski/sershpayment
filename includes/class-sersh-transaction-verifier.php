@@ -26,8 +26,8 @@ class Sersh_Transaction_Verifier {
     public function __construct() {
         $gateway = new WC_Gateway_Sersh();
         $this->web3_provider = $gateway->testmode ? 
-            'https://data-seed-prebsc-1-s1.binance.org:8545/' : 
-            'https://bsc-dataseed.binance.org/';
+            'https://bsc-testnet.nodereal.io/v1/351dc832166e47bbb76426ca5dc45189' : 
+            'https://bsc-mainnet.nodereal.io/v1/351dc832166e47bbb76426ca5dc45189';
     }
 
     /**
@@ -39,6 +39,13 @@ class Sersh_Transaction_Verifier {
      */
     public function verify_transaction($tx_hash, $order_id) {
         try {
+            // Add debug log for transaction verification start
+            WC_Sersh_Payment::log(sprintf(
+                'Starting transaction verification for hash %s and order %s',
+                $tx_hash,
+                $order_id
+            ), 'debug');
+
             // Verify nonce
             if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wc-sersh-payment-nonce')) {
                 throw new Exception(__('Invalid security token', 'wc-sersh-payment'));
@@ -48,6 +55,13 @@ class Sersh_Transaction_Verifier {
             if (!$order) {
                 throw new Exception(__('Order not found', 'wc-sersh-payment'));
             }
+
+            // Log the request to the node
+            WC_Sersh_Payment::log(sprintf(
+                'Calling eth_getTransactionReceipt on %s for tx %s',
+                $this->web3_provider,
+                $tx_hash
+            ), 'debug');
 
             // Get transaction receipt
             $response = wp_remote_post($this->web3_provider, array(
@@ -62,13 +76,20 @@ class Sersh_Transaction_Verifier {
             ));
 
             if (is_wp_error($response)) {
+                WC_Sersh_Payment::log('RPC Error: ' . $response->get_error_message(), 'error');
                 throw new Exception($response->get_error_message());
             }
 
             $body = json_decode(wp_remote_retrieve_body($response), true);
             
+            // Log the response for debugging
+            WC_Sersh_Payment::log('RPC Response: ' . wp_json_encode($body), 'debug');
+            
             if (!isset($body['result'])) {
-                throw new Exception(__('Invalid transaction receipt', 'wc-sersh-payment'));
+                // Check if there's an error message in the response
+                $error_msg = isset($body['error']) ? json_encode($body['error']) : 'Unknown error';
+                WC_Sersh_Payment::log('Invalid receipt received: ' . $error_msg, 'error');
+                throw new Exception(__('Invalid transaction receipt: ' . $error_msg, 'wc-sersh-payment'));
             }
 
             $receipt = $body['result'];
@@ -81,7 +102,7 @@ class Sersh_Transaction_Verifier {
             // Verify payment contract
             $gateway = new WC_Gateway_Sersh();
             if (strtolower($receipt['to']) !== strtolower($gateway->payment_address)) {
-                sersh_payment_log('Invalid payment contract: ' . $receipt['to'], 'error');
+                WC_Sersh_Payment::log('Invalid payment contract: ' . $receipt['to'], 'error');
                 throw new Exception(__('Invalid payment contract address', 'wc-sersh-payment'));
             }
 
@@ -97,14 +118,15 @@ class Sersh_Transaction_Verifier {
                 throw new Exception($transfer_data['message']);
             }
 
-            // Verify payment amount
-            $expected_value = $this->convert_fiat_to_tokens($order->get_total());
-            $actual_value = $transfer_data['amount'];
+            // TODO: Uncomment this when we have a price feed and discount is applied
+            // // Verify payment amount
+            // $expected_value = $this->convert_fiat_to_tokens($order->get_total());
+            // $actual_value = $transfer_data['amount'];
             
-            if ($actual_value < $expected_value) {
-                sersh_payment_log(sprintf('Insufficient payment: expected %f, got %f', $expected_value, $actual_value), 'error');
-                throw new Exception(__('Insufficient payment amount', 'wc-sersh-payment'));
-            }
+            // if ($actual_value < $expected_value) {
+            //     WC_Sersh_Payment::log(sprintf('Insufficient payment: expected %f, got %f', $expected_value, $actual_value), 'error');
+            //     throw new Exception(__('Insufficient payment amount', 'wc-sersh-payment'));
+            // }
 
             $this->log_verification_success($tx_hash, $order_id);
             return array(
@@ -193,7 +215,7 @@ class Sersh_Transaction_Verifier {
         $price_feed_url = $gateway->get_option('price_feed_url');
         
         if (empty($price_feed_url)) {
-            sersh_payment_log('No price feed URL configured, using 1:1 conversion', 'warning');
+            WC_Sersh_Payment::log('No price feed URL configured, using 1:1 conversion', 'warning');
             return $fiat_amount;
         }
 
@@ -229,7 +251,7 @@ class Sersh_Transaction_Verifier {
             // Calculate tokens amount (fiat amount divided by token price)
             $tokens_amount = $fiat_amount / $token_price;
 
-            sersh_payment_log(sprintf(
+            WC_Sersh_Payment::log(sprintf(
                 'Price conversion: %f USD = %f SERSH (price: %f USD/SERSH)',
                 $fiat_amount,
                 $tokens_amount,
@@ -239,7 +261,7 @@ class Sersh_Transaction_Verifier {
             return $tokens_amount;
 
         } catch (Exception $e) {
-            sersh_payment_log('Price conversion failed: ' . $e->getMessage(), 'error');
+            WC_Sersh_Payment::log('Price conversion failed: ' . $e->getMessage(), 'error');
             throw new Exception(
                 sprintf(
                     __('Unable to convert price: %s', 'wc-sersh-payment'),
@@ -268,7 +290,7 @@ class Sersh_Transaction_Verifier {
      * @param int    $order_id Order ID
      */
     private function log_verification_success($tx_hash, $order_id) {
-        sersh_payment_log(sprintf(
+        WC_Sersh_Payment::log(sprintf(
             'Transaction %s verified successfully for order %s',
             $tx_hash,
             $order_id
@@ -283,7 +305,7 @@ class Sersh_Transaction_Verifier {
      * @param string $error_message Error message
      */
     private function log_verification_error($tx_hash, $order_id, $error_message) {
-        sersh_payment_log(sprintf(
+        WC_Sersh_Payment::log(sprintf(
             'Transaction %s verification failed for order %s: %s',
             $tx_hash,
             $order_id,
