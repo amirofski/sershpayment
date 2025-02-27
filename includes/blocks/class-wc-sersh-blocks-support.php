@@ -28,6 +28,18 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
     private $gateway;
 
     /**
+     * Log to file
+     *
+     * @param string $message Log message
+     * @param string $level   Log level
+     */
+    public static function log($message, $level = 'info') {
+        if (class_exists('WC_Sersh_Payment')) {
+            WC_Sersh_Payment::log($message, $level);
+        }
+    }
+
+    /**
      * Initializes the payment method type.
      */
     public function initialize() {
@@ -145,8 +157,8 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
             'nonce'           => wp_create_nonce('wc-sersh-payment-nonce'),
             'chainId'         => $this->gateway->testmode ? '0x61' : '0x38',
             'rpcUrl'          => $this->gateway->testmode 
-                ? 'https://data-seed-prebsc-1-s1.binance.org:8545'
-                : 'https://bsc-dataseed.binance.org/',
+                ? 'https://bsc-testnet.nodereal.io/v1/351dc832166e47bbb76426ca5dc45189'
+                : 'https://bsc-mainnet.nodereal.io/v1/351dc832166e47bbb76426ca5dc45189',
             'paymentAbi'      => $payment_abi,
             'i18n'           => array(
                 'metamaskRequired' => __('MetaMask or a compatible Web3 wallet is required for SERSH payments.', 'wc-sersh-payment'),
@@ -180,12 +192,125 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
      */
     public function process_payment($context, $result) {
         try {
+            // Extract wallet address from payment data if available
+            $payment_data = $context->payment_data;
+            $wallet_address = null;
+            $transaction_hash = null;
+            
+            // Debug payment data
+            if ('yes' === $this->gateway->get_option('debug')) {
+                WC_Sersh_Blocks_Support::log(
+                    'Blocks checkout payment data: ' . json_encode($payment_data),
+                    'debug'
+                );
+            }
+            
+            // Check if order_id is present in payment data and ensure it's a string
+            if (!empty($payment_data['order_id']) && !is_string($payment_data['order_id'])) {
+                $payment_data['order_id'] = (string)$payment_data['order_id'];
+                if ('yes' === $this->gateway->get_option('debug')) {
+                    WC_Sersh_Blocks_Support::log(
+                        'Converting order_id to string: ' . $payment_data['order_id'],
+                        'debug'
+                    );
+                }
+            }
+            
+            if (!empty($payment_data['user_address'])) {
+                $wallet_address = sanitize_text_field($payment_data['user_address']);
+                
+                if ('yes' === $this->gateway->get_option('debug')) {
+                    WC_Sersh_Blocks_Support::log(
+                        'Saving wallet address from blocks checkout: ' . $wallet_address . ' for order: ' . $context->order->get_id(),
+                        'debug'
+                    );
+                }
+                
+                // Save wallet address to order meta
+                $context->order->update_meta_data('_sersh_payer_wallet', $wallet_address);
+                $context->order->add_order_note(sprintf(
+                    __('Payer wallet address (Blocks checkout): %s', 'wc-sersh-payment'),
+                    $wallet_address
+                ));
+            }
+            
+            // Extract transaction hash if available
+            if (!empty($payment_data['transaction_hash'])) {
+                $transaction_hash = sanitize_text_field($payment_data['transaction_hash']);
+                
+                if ('yes' === $this->gateway->get_option('debug')) {
+                    WC_Sersh_Blocks_Support::log(
+                        'Saving transaction hash from blocks checkout: ' . $transaction_hash . ' for order: ' . $context->order->get_id(),
+                        'debug'
+                    );
+                }
+                
+                // Save transaction hash as the order's transaction ID
+                $context->order->set_transaction_id($transaction_hash);
+                $context->order->add_order_note(sprintf(
+                    __('SERSH blockchain transaction hash: %s from %s', 'wc-sersh-payment'),
+                    $transaction_hash,
+                    $wallet_address
+                ));
+            } else if ('yes' === $this->gateway->get_option('debug')) {
+                WC_Sersh_Blocks_Support::log(
+                    'No transaction hash available in blocks checkout payment data for order: ' . $context->order->get_id(),
+                    'debug'
+                );
+            }
+            
+            if ($wallet_address || $transaction_hash) {
+                $context->order->save();
+                
+                // Verify data was saved correctly
+                if ($transaction_hash && 'yes' === $this->gateway->get_option('debug')) {
+                    $saved_tx_id = $context->order->get_transaction_id();
+                    WC_Sersh_Blocks_Support::log(
+                        'Transaction ID after save: Expected: ' . $transaction_hash . ', Actual: ' . $saved_tx_id,
+                        $saved_tx_id === $transaction_hash ? 'debug' : 'error'
+                    );
+                }
+            }
+            
             $payment_result = $this->gateway->process_payment($context->order->get_id());
 
             if (!empty($payment_result['result']) && 'success' === $payment_result['result']) {
+                if ('yes' === $this->gateway->get_option('debug')) {
+                    WC_Sersh_Blocks_Support::log(
+                        'Blocks checkout payment successful for order: ' . $context->order->get_id(),
+                        'debug'
+                    );
+                }
+                
+                // After successful payment, check transaction ID again
+                if ($transaction_hash && 'yes' === $this->gateway->get_option('debug')) {
+                    $final_tx_id = $context->order->get_transaction_id();
+                    WC_Sersh_Blocks_Support::log(
+                        'Final transaction ID check: Expected: ' . $transaction_hash . ', Actual: ' . $final_tx_id,
+                        $final_tx_id === $transaction_hash ? 'debug' : 'error'
+                    );
+                    
+                    // If transaction ID was changed, try to restore it
+                    if ($final_tx_id !== $transaction_hash) {
+                        $context->order->set_transaction_id($transaction_hash);
+                        $context->order->save();
+                        WC_Sersh_Blocks_Support::log(
+                            'Restored transaction ID after payment_result. New value: ' . $context->order->get_transaction_id(),
+                            'debug'
+                        );
+                    }
+                }
+                
                 $result->set_status('success');
                 $result->set_redirect_url($payment_result['redirect']);
             } else {
+                if ('yes' === $this->gateway->get_option('debug')) {
+                    WC_Sersh_Blocks_Support::log(
+                        'Blocks checkout payment failed for order: ' . $context->order->get_id(),
+                        'error'
+                    );
+                }
+                
                 $result->set_status('error');
                 $result->set_error_message(
                     isset($payment_result['messages']) 
@@ -194,6 +319,13 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
                 );
             }
         } catch (Exception $e) {
+            if ('yes' === $this->gateway->get_option('debug')) {
+                WC_Sersh_Blocks_Support::log(
+                    'Blocks checkout exception: ' . $e->getMessage() . ' for order: ' . $context->order->get_id(),
+                    'error'
+                );
+            }
+            
             $result->set_status('error');
             $result->set_error_message($e->getMessage());
         }
