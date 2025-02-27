@@ -101,7 +101,11 @@
 
                 // Check allowance first
                 const allowance = await tokenContract.methods.allowance(userAddress, wcSershPayment.paymentAddress).call();
-                console.log(allowance);
+                console.log({
+                    allowance: allowance,
+                    amountBN: amountBN,
+                    web3: web3.utils.toBN(allowance).lt(amountBN)
+                })
 
                 if (web3.utils.toBN(allowance).lt(amountBN)) {
                     // Approve tokens first
@@ -112,14 +116,14 @@
                 }
 
                 // Transfer tokens through the payment contract
-                const paymentContract = this.getPaymentContract();
-                const tx = await paymentContract.methods.paySubscription(
-                    paymentData.userId,
-                    amount,
-                    paymentData.nonce,
-                    paymentData.expiry,
-                    paymentData.signature
-                ).send({ from: userAddress });
+                // const paymentContract = this.getPaymentContract();
+                // const tx = await paymentContract.methods.paySubscription(
+                //     paymentData.userId,
+                //     amount,
+                //     paymentData.nonce,
+                //     paymentData.expiry,
+                //     paymentData.signature
+                // ).send({ from: userAddress });
 
                 // Verify payment
                 await this.verifyPayment(tx.transactionHash);

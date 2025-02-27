@@ -1,0 +1,111 @@
+/* SERSH Payment Gateway Styles */
+
+/* Wallet Connection Display */
+.sersh-wallet-connected {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px 15px;
+    margin: 10px 0;
+    font-family: monospace;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Connect Wallet Button */
+#sersh-connect-wallet,
+.sersh-payment-method .components-button.is-secondary {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 10px 0;
+    transition: background-color 0.2s ease;
+}
+
+#sersh-connect-wallet:hover,
+.sersh-payment-method .components-button.is-secondary:hover {
+    background: #0056b3;
+}
+
+/* Processing State */
+.sersh-payment-processing {
+    margin: 10px 0;
+    padding: 10px;
+    background: #e9ecef;
+    border-radius: 4px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+/* Payment Method Container */
+.sersh-payment-method {
+    padding: 15px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+/* Payment Label */
+.sersh-payment-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sersh-payment-label img {
+    max-height: 24px;
+    width: auto;
+}
+
+/* Error Messages */
+.sersh-payment-method .wc-block-components-notice-banner.is-error {
+    border-left-color: #dc3545;
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 12px 15px;
+    margin: 10px 0;
+    border-radius: 4px;
+}
+
+/* Payment Form */
+#sersh-payment-form {
+    margin: 15px 0;
+}
+
+/* Loading Animation */
+.sersh-payment-processing::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #007bff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: sersh-spin 1s linear infinite;
+}
+
+@keyframes sersh-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .sersh-wallet-connected {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .sersh-payment-label {
+        flex-direction: column;
+        text-align: center;
+    }
+} 
