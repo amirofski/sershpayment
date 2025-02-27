@@ -131,6 +131,16 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
 
         // WooCommerce Blocks integration
         add_action('woocommerce_blocks_loaded', array($this, 'register_block_support'));
+
+        // Add hooks for displaying wallet address
+        add_action('woocommerce_admin_order_data_after_billing_address', array($this, 'display_admin_order_wallet_address'), 10, 1);
+        add_action('woocommerce_order_details_after_order_table', array($this, 'display_customer_order_wallet_address'), 10, 1);
+        add_action('woocommerce_email_after_order_table', array($this, 'display_customer_order_wallet_address'), 10, 1);
+
+        
+        // Add wallet address to new admin orders page
+        add_filter('manage_woocommerce_page_wc-orders_columns', array($this, 'add_wallet_address_column'), 20);
+        add_action('manage_woocommerce_page_wc-orders_custom_column', array($this, 'display_wallet_address_in_column'), 10, 2);
     }
 
     /**
@@ -595,6 +605,16 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             $order->update_meta_data('_sersh_token_address', $this->token_address);
             $order->update_meta_data('_sersh_payment_initiated', current_time('mysql'));
             
+            // Store payer's wallet address if provided
+            if (!empty($_POST['sersh_payer_wallet'])) {
+                $payer_wallet = sanitize_text_field($_POST['sersh_payer_wallet']);
+                $order->update_meta_data('_sersh_payer_wallet', $payer_wallet);
+                $order->add_order_note(sprintf(
+                    __('Payer wallet address: %s', 'wc-sersh-payment'),
+                    $payer_wallet
+                ));
+            }
+            
             // Add order note about payment initiation
             $order->add_order_note(
                 sprintf(
@@ -602,6 +622,13 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
                     $token_amount,
                     $order->get_currency(),
                     $order->get_total()
+                )
+            );
+
+            $order->add_order_note(
+                sprintf(
+                    __('User Wallet Address (%s)', 'wc-sersh-payment'),
+                    sanitize_text_field($_POST['sersh_payer_wallet'])
                 )
             );
 
@@ -732,6 +759,14 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             return;
         }
 
+        // Enqueue styles
+        wp_enqueue_style(
+            'wc-sersh-payment',
+            WC_SERSH_PLUGIN_URL . 'assets/css/sersh-payment.css',
+            array(),
+            WC_SERSH_VERSION
+        );
+
         wp_enqueue_script('web3');
         wp_enqueue_script('wc-sersh-payment');
         wp_enqueue_script('wc-sersh-checkout');
@@ -747,6 +782,8 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
                 'connectWallet'    => __('Please connect your wallet to proceed.', 'wc-sersh-payment'),
                 'wrongNetwork'     => __('Please switch to the correct network to proceed.', 'wc-sersh-payment'),
                 'paymentError'     => __('Payment failed: ', 'wc-sersh-payment'),
+                'walletConnected'  => __('Wallet connected: ', 'wc-sersh-payment'),
+                'walletRequired'   => __('Please connect your wallet to complete the payment.', 'wc-sersh-payment'),
             ),
         ));
     }
@@ -756,27 +793,35 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
      */
     public function payment_fields() {
         if ($this->description) {
+            echo '<div class="sersh-payment-description">';
             echo wpautop(wp_kses_post($this->description));
+            echo '</div>';
         }
 
-        echo '<div id="sersh-payment-form">';
+        echo '<div id="sersh-payment-form" class="sersh-payment-method">';
         
         if (!$this->is_valid_for_use()) {
-            echo '<div class="woocommerce-error">' . 
+            echo '<div class="wc-block-components-notice-banner is-error">' . 
                 esc_html__('SERSH Payment is not available for your location.', 'wc-sersh-payment') . 
                 '</div>';
             return;
         }
 
         if (!$this->testmode && !$this->merchant_address) {
-            echo '<div class="woocommerce-error">' . 
+            echo '<div class="wc-block-components-notice-banner is-error">' . 
                 esc_html__('Merchant address not configured. Please contact the store administrator.', 'wc-sersh-payment') . 
                 '</div>';
             return;
         }
 
-        // Add hidden fields for token amount
+        // Add wallet connection section
+        echo '<div class="sersh-wallet-section">';
+        echo '<div id="sersh-wallet-display"></div>';
+        echo '</div>';
+
+        // Add hidden fields for token amount and wallet address
         echo '<input type="hidden" id="sersh_token_amount" name="sersh_token_amount" />';
+        echo '<input type="hidden" id="sersh_payer_wallet" name="sersh_payer_wallet" />';
         echo '<input type="hidden" id="sersh_network" name="sersh_network" value="' . 
             esc_attr($this->testmode ? 'testnet' : 'mainnet') . '" />';
         
@@ -982,14 +1027,40 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
      */
     private function process_successful_payment_webhook($data) {
         if (!isset($data['order_id']) || !isset($data['transaction_hash'])) {
+            $this->log('Webhook missing required fields: ' . json_encode($data), 'error');
             wp_send_json_error('Missing required fields');
             exit;
         }
 
         $order = wc_get_order($data['order_id']);
         if (!$order) {
+            $this->log('Webhook order not found: ' . $data['order_id'], 'error');
             wp_send_json_error('Order not found');
             exit;
+        }
+
+        // Save transaction hash as transaction ID (even before verification)
+        $transaction_hash = sanitize_text_field($data['transaction_hash']);
+        
+        // Log transaction hash processing
+        $this->log('Processing webhook transaction: ' . $transaction_hash . ' for order: ' . $data['order_id'], 'debug');
+        
+        // Check if transaction ID already exists
+        $existing_transaction_id = $order->get_transaction_id();
+        if (!empty($existing_transaction_id)) {
+            $this->log('Order already has transaction ID: ' . $existing_transaction_id . '. Will be updated to: ' . $transaction_hash, 'debug');
+        }
+        
+        // Set and save the transaction ID
+        $order->set_transaction_id($transaction_hash);
+        $order->save();
+        
+        // Verify the transaction ID was actually saved
+        $saved_transaction_id = $order->get_transaction_id();
+        if ($saved_transaction_id !== $transaction_hash) {
+            $this->log('Transaction ID mismatch after saving. Expected: ' . $transaction_hash . ', Got: ' . $saved_transaction_id, 'error');
+        } else {
+            $this->log('Transaction ID saved successfully: ' . $saved_transaction_id, 'debug');
         }
 
         // Verify the transaction
@@ -997,14 +1068,30 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         $verification = $verifier->verify_transaction($data['transaction_hash'], $data['order_id']);
 
         if ($verification['success']) {
-            $order->payment_complete($data['transaction_hash']);
+            $this->log('Transaction verification successful for order: ' . $data['order_id'], 'debug');
+            
+            // The transaction ID is passed as parameter to be recorded
+            // Note: Even though we already set_transaction_id above, payment_complete also sets it
+            $order->payment_complete($transaction_hash);
+            
+            // Check if payment_complete properly saved the transaction ID
+            $final_transaction_id = $order->get_transaction_id();
+            if ($final_transaction_id !== $transaction_hash) {
+                $this->log('Transaction ID changed after payment_complete. Expected: ' . $transaction_hash . ', Got: ' . $final_transaction_id, 'error');
+                
+                // Try to set it again
+                $order->set_transaction_id($transaction_hash);
+                $order->save();
+            }
+            
             $order->add_order_note(
                 sprintf(
                     __('Payment completed via SERSH. Transaction hash: %s', 'wc-sersh-payment'),
-                    $data['transaction_hash']
+                    $transaction_hash
                 )
             );
         } else {
+            $this->log('Transaction verification failed for order: ' . $data['order_id'] . ', Reason: ' . $verification['message'], 'error');
             $order->update_status(
                 'failed',
                 sprintf(
@@ -1252,6 +1339,131 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         } catch (Exception $e) {
             error_log('SERSH Payment - Price conversion error: ' . $e->getMessage());
             throw new Exception(__('Failed to get current SERSH token price. Please try again later.', 'wc-sersh-payment'));
+        }
+    }
+
+    /**
+     * Display payer wallet address in admin order page
+     *
+     * @param WC_Order $order Order object
+     */
+    public function display_admin_order_wallet_address($order) {
+        // Use a static variable to track whether this function has already displayed data for this order
+        static $displayed_orders = array();
+        
+        // Skip if not SERSH payment or if already displayed for this order
+        if ($order->get_payment_method() !== $this->id || in_array($order->get_id(), $displayed_orders)) {
+            return;
+        }
+        
+        // Mark this order as displayed to prevent duplication
+        $displayed_orders[] = $order->get_id();
+
+        $payer_wallet = $order->get_meta('_sersh_payer_wallet');
+        if (!empty($payer_wallet)) {
+            ?>
+            <div class="order_data_column sersh-payment-details">
+                <h4><?php esc_html_e('SERSH Payment Details', 'wc-sersh-payment'); ?></h4>
+                <div class="sersh-wallet-connected">
+                    <strong><?php esc_html_e('Payer Wallet:', 'wc-sersh-payment'); ?></strong>
+                    <span class="sersh-wallet-address"><?php echo esc_html($payer_wallet); ?></span>
+                </div>
+            </div>
+            <?php
+        }
+    }
+
+    /**
+     * Display payer wallet address in customer order details
+     *
+     * @param WC_Order $order Order object
+     */
+    public function display_customer_order_wallet_address($order) {
+        // Use a static variable to track whether this function has already displayed data for this order
+        static $displayed_orders = array();
+        
+        // Skip if not SERSH payment or if already displayed for this order
+        if ($order->get_payment_method() !== $this->id || in_array($order->get_id(), $displayed_orders)) {
+            return;
+        }
+        
+        // Mark this order as displayed to prevent duplication
+        $displayed_orders[] = $order->get_id();
+
+        $payer_wallet = $order->get_meta('_sersh_payer_wallet');
+        if (!empty($payer_wallet)) {
+            ?>
+            <div class="sersh-payment-details">
+                <h2><?php esc_html_e('Payment Details', 'wc-sersh-payment'); ?></h2>
+                <div class="sersh-wallet-connected">
+                    <strong><?php esc_html_e('Transaction From:', 'wc-sersh-payment'); ?></strong>
+                    <span class="sersh-wallet-address"><?php echo esc_html($payer_wallet); ?></span>
+                </div>
+            </div>
+            <?php
+        }
+    }
+
+    /**
+     * Add wallet address column to WooCommerce admin orders page
+     *
+     * @param array $columns Existing columns
+     * @return array Modified columns
+     */
+    public function add_wallet_address_column($columns) {
+        $new_columns = array();
+        
+        // Insert wallet column after order status
+        foreach ($columns as $key => $column) {
+            $new_columns[$key] = $column;
+            if ($key === 'order_status') {
+                $new_columns['sersh_wallet'] = __('SERSH Wallet', 'wc-sersh-payment');
+            }
+        }
+        
+        return $new_columns;
+    }
+    
+    /**
+     * Display wallet address in the custom column
+     *
+     * @param string $column Column name
+     * @param object $order Order object
+     */
+    public function display_wallet_address_in_column($column, $order) {
+        if ($column === 'sersh_wallet') {
+            // Get the order object if we're passed an ID
+            if (!is_a($order, 'WC_Order')) {
+                $order = wc_get_order($order);
+            }
+            
+            // Check if this is a SERSH payment
+            if ($order->get_payment_method() !== $this->id) {
+                return;
+            }
+            
+            // Display wallet address
+            $payer_wallet = $order->get_meta('_sersh_payer_wallet');
+            if (!empty($payer_wallet)) {
+                echo '<span class="sersh-wallet-address" title="' . esc_attr($payer_wallet) . '">' . 
+                     esc_html(substr($payer_wallet, 0, 8) . '...' . substr($payer_wallet, -6)) . 
+                     '</span>';
+            } else {
+                echo '<span class="sersh-wallet-address-missing">' . __('Not provided', 'wc-sersh-payment') . '</span>';
+            }
+        }
+    }
+
+    /**
+     * Log a message
+     *
+     * @param string $message Message to log
+     * @param string $level   Log level ('debug', 'info', 'warning', 'error')
+     */
+    private function log($message, $level = 'info') {
+        if ('yes' === $this->get_option('debug')) {
+            // Use the static log method from the main plugin class
+            WC_Sersh_Payment::log($message, $level);
         }
     }
 } 
