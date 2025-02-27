@@ -1,0 +1,6 @@
+ /node_modules
+ sersh.zip
+ /build
+ .dist
+ 
+config.bat
