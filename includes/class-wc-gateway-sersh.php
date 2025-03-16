@@ -73,6 +73,27 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
     public $trusted_signer;
 
     /**
+     * Token price
+     *
+     * @var string
+     */
+    public $token_price;
+
+    /**
+     * Price adjustment factor
+     *
+     * @var string
+     */
+    public $price_adjustment_factor;
+
+    /**
+     * Token decimals
+     *
+     * @var string
+     */
+    public $token_decimals;
+
+    /**
      * Constructor for the gateway.
      */
     public function __construct() {
@@ -114,6 +135,9 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         $this->payment_address    = $this->get_option('payment_address', WC_SERSH_DEFAULT_PAYMENT_ADDRESS);
         $this->merchant_address   = $this->get_option('merchant_address');
         $this->price_feed_url     = $this->get_option('price_feed_url');
+        $this->token_price        = $this->get_option('token_price', '1.00');
+        $this->price_adjustment_factor = $this->get_option('price_adjustment_factor', '1.0');
+        $this->token_decimals     = $this->get_option('token_decimals', '18');
         $this->trusted_signer     = $this->get_option('trusted_signer');
         
         // Hooks
@@ -191,10 +215,13 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             'merchantAddress' => $this->merchant_address,
             'testMode'        => $this->testmode,
             'i18n'           => array(
-                'metamaskRequired' => __('MetaMask or a compatible Web3 wallet is required to make payments.', 'wc-sersh-payment'),
-                'connectWallet'    => __('Please connect your wallet to proceed.', 'wc-sersh-payment'),
-                'wrongNetwork'     => __('Please switch to the correct network to proceed.', 'wc-sersh-payment'),
-                'paymentError'     => __('Payment failed: ', 'wc-sersh-payment'),
+                'walletRequired' => __('Please connect your wallet to proceed with payment.', 'wc-sersh-payment'),
+                'metamaskRequired' => __('MetaMask or a compatible Web3 wallet is required for payment.', 'wc-sersh-payment'),
+                'processingPayment' => __('Processing payment...', 'wc-sersh-payment'),
+                'paymentError' => __('Payment error: ', 'wc-sersh-payment'),
+                'walletConnected' => __('Wallet connected: ', 'wc-sersh-payment'),
+                'connectWallet' => __('Connect wallet', 'wc-sersh-payment'),
+                'requestTimeout' => __('Network request timed out. Please check your connection and try again.', 'wc-sersh-payment'),
             ),
         ));
 
@@ -279,6 +306,20 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
                 'type'        => 'text',
                 'description' => __('Fixed price of 1 SERSH token in USD. Used if price feed is not available.', 'wc-sersh-payment'),
                 'default'     => '1.00',
+                'desc_tip'    => true,
+            ),
+            'price_adjustment_factor' => array(
+                'title'       => __('Price Feed Adjustment Factor', 'wc-sersh-payment'),
+                'type'        => 'text',
+                'description' => __('Factor to adjust the price from the price feed (e.g., 0.01 if the feed returns cents instead of dollars, or 1.0 if no adjustment needed).', 'wc-sersh-payment'),
+                'default'     => '1.0',
+                'desc_tip'    => true,
+            ),
+            'token_decimals' => array(
+                'title'       => __('Token Decimals', 'wc-sersh-payment'),
+                'type'        => 'text',
+                'description' => __('Number of decimal places for the SERSH token (usually 18 for ERC20 tokens).', 'wc-sersh-payment'),
+                'default'     => '18',
                 'desc_tip'    => true,
             ),
             'signer_section' => array(
@@ -772,7 +813,7 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         }
 
         $response = wp_remote_get($this->price_feed_url, array(
-            'timeout'     => 15,
+            'timeout'     => 30,
             'user-agent'  => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
             'headers'     => array('Accept' => 'application/json'),
         ));
@@ -852,12 +893,13 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             'merchantAddress' => $this->merchant_address,
             'testMode'        => $this->testmode,
             'i18n'           => array(
-                'metamaskRequired' => __('MetaMask or a compatible Web3 wallet is required to make payments.', 'wc-sersh-payment'),
-                'connectWallet'    => __('Please connect your wallet to proceed.', 'wc-sersh-payment'),
-                'wrongNetwork'     => __('Please switch to the correct network to proceed.', 'wc-sersh-payment'),
-                'paymentError'     => __('Payment failed: ', 'wc-sersh-payment'),
-                'walletConnected'  => __('Wallet connected: ', 'wc-sersh-payment'),
-                'walletRequired'   => __('Please connect your wallet to complete the payment.', 'wc-sersh-payment'),
+                'walletRequired' => __('Please connect your wallet to proceed with payment.', 'wc-sersh-payment'),
+                'metamaskRequired' => __('MetaMask or a compatible Web3 wallet is required for payment.', 'wc-sersh-payment'),
+                'processingPayment' => __('Processing payment...', 'wc-sersh-payment'),
+                'paymentError' => __('Payment error: ', 'wc-sersh-payment'),
+                'walletConnected' => __('Wallet connected: ', 'wc-sersh-payment'),
+                'connectWallet' => __('Connect wallet', 'wc-sersh-payment'),
+                'requestTimeout' => __('Network request timed out. Please check your connection and try again.', 'wc-sersh-payment'),
             ),
         ));
     }
@@ -1311,7 +1353,7 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
 
             // Fetch current price from the price feed
             $response = wp_remote_get($this->price_feed_url, array(
-                'timeout'     => 15,
+                'timeout'     => 30,
                 'user-agent'  => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
                 'headers'     => array('Accept' => 'application/json'),
             ));

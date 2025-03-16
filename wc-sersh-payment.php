@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce SERSH Payment Gateway
  * Plugin URI: https://sershpayment.com
  * Description: Accept SERSH token payments on Binance Smart Chain (BSC) in your WooCommerce store.
- * Version: 1.2.9
+ * Version: 1.3.4
  * Author: SERSH Payment
  * Author URI: https://sershpayment.com
  * Text Domain: wc-sersh-payment
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('WC_SERSH_VERSION', '1.2.9');
+define('WC_SERSH_VERSION', '1.3.4');
 define('WC_SERSH_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WC_SERSH_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WC_SERSH_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -463,12 +463,6 @@ final class WC_Sersh_Payment {
         }
 
         wp_add_inline_script('wc-sersh-payment', '
-            jQuery(function($) {
-                if (typeof window.ethereum === "undefined") {
-                    $("input[value=\'sersh\']").closest("li").hide();
-                    console.warn("MetaMask not detected. SERSH payment method hidden.");
-                }
-            });
         ');
     }
 }

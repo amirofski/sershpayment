@@ -344,11 +344,20 @@ class Sersh_Payment_Signer {
 
             error_log('SERSH Payment - Payment signature generated successfully');
             
+            // Restructure the data to match what the frontend expects
+            // The worker API returns messageHash and signature, but the frontend expects
+            // message object with userId, price, nonce, expiry properties
             return array(
                 'success' => true,
                 'data' => array(
-                    'message' => $data['message'],
-                    'signature' => $data['signature']
+                    'message' => array(
+                        'userId' => $user_id,
+                        'price' => $amount,
+                        'nonce' => $nonce,
+                        'expiry' => $expiry
+                    ),
+                    'signature' => $data['signature'],
+                    'messageHash' => $data['messageHash']
                 )
             );
 
@@ -363,9 +372,11 @@ class Sersh_Payment_Signer {
 
     private function send_signature_request($user_id, $amount, $nonce, $expiry, $user_address) {
         $response = wp_remote_post(
-            'https://api-w3.sglobal.io:3443/testing/subscription/create-saxess-signature',
+            'https://purple-queen-f675.amir-devel.workers.dev/',
             array(
                 'method' => 'POST',
+                'timeout'   => 120, // Increase timeout to 120 seconds
+                'blocking'  => true, // Ensure we wait for a response
                 'body' => array(
                     'userId' => $user_id,
                     'price' => $amount,
