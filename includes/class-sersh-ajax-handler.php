@@ -110,18 +110,7 @@ class Sersh_Ajax_Handler {
             $gateway = new WC_Gateway_Sersh();
             $debug_mode = 'yes' === $gateway->get_option('debug');
             
-                // WC_Sersh_Payment::log(sprintf(
-                //     'Processing transaction verification - TX Hash: %s, Wallet: %s, Order ID: %s',
-                //     $tx_hash,
-                //     $wallet_address,
-                //     $order_id ? $order_id : 'not provided'
-                // ), 'debug');
 
-            // If we don't have a valid order ID, try to find it based on the wallet address
-            // if (!$order_id) {
-                // if ($debug_mode) {
-                //     WC_Sersh_Payment::log('No order ID provided. Attempting to find order by wallet address.', 'debug');
-                // }
 
                 if (empty($wallet_address)) {
                     throw new Exception(__('Both order ID and wallet address are missing. Cannot verify payment.', 'wc-sersh-payment'));
@@ -131,206 +120,7 @@ class Sersh_Ajax_Handler {
                 WC()->session->set('sersh_tx_hash', $tx_hash);
                 WC()->session->set('sersh_wallet_address', $wallet_address);
 
-                // // Find orders with this wallet address
-                // $orders = wc_get_orders(array(
-                //     'status' => 'pending',
-                //     'limit' => 5,
-                //     'orderby' => 'date',
-                //     'order' => 'DESC',
-                //     'meta_key' => '_sersh_payer_wallet',
-                //     'meta_value' => $wallet_address,
-                // ));
 
-                // if (!empty($orders)) {
-                //     $order = reset($orders); // Get the first/most recent order
-                //     $order_id = $order->get_id();
-                    
-                //     if ($debug_mode) {
-                //         WC_Sersh_Payment::log(sprintf(
-                //             'Found order #%d with matching wallet address %s',
-                //             $order_id,
-                //             $wallet_address
-                //         ), 'debug');
-                //     }
-                // } else {
-                //     // If we still don't have an order, look for recent pending orders
-                //     $recent_orders = wc_get_orders(array(
-                //         'status' => 'pending',
-                //         'limit' => 10,
-                //         'orderby' => 'date',
-                //         'order' => 'DESC'
-                //     ));
-
-                //     if (!empty($recent_orders)) {
-                //         // Find an order without wallet address but with matching payment method
-                //         foreach ($recent_orders as $recent_order) {
-                //             if ($recent_order->get_payment_method() === 'sersh' && !$recent_order->get_meta('_sersh_payer_wallet')) {
-                //                 $order = $recent_order;
-                //                 $order_id = $order->get_id();
-                                
-                //                 if ($debug_mode) {
-                //                     WC_Sersh_Payment::log(sprintf(
-                //                         'Found recent pending SERSH order #%d without wallet address',
-                //                         $order_id
-                //                     ), 'debug');
-                //                 }
-                //                 break;
-                //             }
-                //         }
-                //     }
-                // }
-                
-                // if (!$order_id) {
-                //     throw new Exception(__('Could not find a matching order for this transaction', 'wc-sersh-payment'));
-                // }
-            // }
-
-            // Get the order
-            // $order = wc_get_order($order_id);
-            // if (!$order) {
-            //     throw new Exception(sprintf(__('Order #%d not found', 'wc-sersh-payment'), $order_id));
-            // }
-
-            // Check if this is a "Test" order and try to find the real customer order
-            // $order_billing_first_name = $order->get_billing_first_name();
-            // $is_test_order = ($order_billing_first_name === 'Test');
-            
-            // if ($is_test_order && $debug_mode) {
-            //     WC_Sersh_Payment::log(sprintf(
-            //         'This appears to be a Test order (#%d). Will attempt to find the real customer order.',
-            //         $order_id
-            //     ), 'debug');
-            // }
-            
-            // // If the current order is a Test order, try to find the real customer order with the same total
-            // $customer_order = null;
-            // if ($is_test_order) {
-            //     $potential_customer_orders = wc_get_orders(array(
-            //         'status' => 'pending',
-            //         'date_created' => date('Y-m-d', strtotime($order->get_date_created())),
-            //         'meta_query' => array(
-            //             array(
-            //                 'key' => '_order_total',
-            //                 'value' => $order->get_total(),
-            //                 'compare' => '=',
-            //             )
-            //         ),
-            //         'excluding' => array($order_id),
-            //         'limit' => 5, // Get a few potential matches
-            //     ));
-                
-            //     // Find the order that's not a Test order
-            //     foreach ($potential_customer_orders as $potential_order) {
-            //         if ($potential_order->get_billing_first_name() !== 'Test') {
-            //             $customer_order = $potential_order;
-                        
-            //             if ($debug_mode) {
-            //                 WC_Sersh_Payment::log(sprintf(
-            //                     'Found matching customer order #%d for test order #%d',
-            //                     $customer_order->get_id(),
-            //                     $order_id
-            //                 ), 'debug');
-            //             }
-            //             break;
-            //         }
-            //     }
-            // }
-
-            // Set the transaction ID on the current order
-            // $order->set_transaction_id($tx_hash);
-            
-            // // Add order note about the transaction hash
-            // $order->add_order_note(sprintf(
-            //     __('SERSH blockchain transaction hash: %s', 'wc-sersh-payment'),
-            //     $tx_hash
-            // ));
-            
-            // // If wallet address was provided, save it
-            // if (!empty($wallet_address)) {
-            //     $order->update_meta_data('_sersh_payer_wallet', $wallet_address);
-            //     $order->add_order_note(sprintf(
-            //         __('Payer wallet address (Transaction verification): %s', 'wc-sersh-payment'),
-            //         $wallet_address
-            //     ));
-            // }
-            
-            // Save the order with transaction ID
-            // $order->save();
-            
-            // // If we found a customer order, copy the blockchain details to it as well
-            // if ($customer_order) {
-            //     // Set transaction hash on the customer order
-            //     $customer_order->set_transaction_id($tx_hash);
-            //     $customer_order->add_order_note(sprintf(
-            //         __('SERSH blockchain transaction hash: %s (synced from test order #%d)', 'wc-sersh-payment'),
-            //         $tx_hash,
-            //         $order_id
-            //     ));
-                
-            //     // Copy wallet address if available
-            //     if (!empty($wallet_address)) {
-            //         $customer_order->update_meta_data('_sersh_payer_wallet', $wallet_address);
-            //         $customer_order->add_order_note(sprintf(
-            //             __('Payer wallet address: %s (synced from test order #%d)', 'wc-sersh-payment'),
-            //             $wallet_address,
-            //             $order_id
-            //         ));
-            //     }
-                
-            //     // Save the customer order
-            //     $customer_order->save();
-                
-            //     if ($debug_mode) {
-            //         WC_Sersh_Payment::log(sprintf(
-            //             'Blockchain details synced from test order #%d to customer order #%d',
-            //             $order_id,
-            //             $customer_order->get_id()
-            //         ), 'debug');
-            //     }
-            // }
-            
-            // // Verify the transaction ID was saved properly
-            // $saved_tx_id = $order->get_transaction_id();
-            // if ($debug_mode) {
-            //     WC_Sersh_Payment::log(sprintf(
-            //         'Verification - Saved transaction ID: %s, Expected: %s',
-            //         $saved_tx_id,
-            //         $tx_hash
-            //     ), 'debug');
-                
-            //     // Check if the transaction ID was actually saved
-            //     if ($saved_tx_id !== $tx_hash) {
-            //         WC_Sersh_Payment::log(
-            //             'Warning: Transaction ID mismatch after saving. This could indicate a persistence issue.',
-            //             'error'
-            //         );
-            //     }
-            // }
-
-            // // Verify the transaction
-            // $verifier = new Sersh_Transaction_Verifier();
-            // $result = $verifier->verify_transaction($tx_hash, $order_id);
-
-            // if ($result['success']) {
-            //     if ($debug_mode) {
-            //         WC_Sersh_Payment::log(sprintf(
-            //             'Transaction verification successful - Order ID: %s, TX Hash: %s',
-            //             $order_id,
-            //             $tx_hash
-            //         ), 'debug');
-            //     }
-            //     wp_send_json_success($result['message']);
-            // } else {
-            //     if ($debug_mode) {
-            //         WC_Sersh_Payment::log(sprintf(
-            //             'Transaction verification failed - Order ID: %s, TX Hash: %s, Message: %s',
-            //             $order_id,
-            //             $tx_hash,
-            //             $result['message']
-            //         ), 'error');
-            //     }
-            //     wp_send_json_error($result['message']);
-            // }
 
         } catch (Exception $e) {
             WC_Sersh_Payment::log('Transaction verification error: ' . $e->getMessage(), 'error');
@@ -354,127 +144,16 @@ class Sersh_Ajax_Handler {
             // Get gateway instance
             $gateway = new WC_Gateway_Sersh();
             
-            // Check directly for an order ID from the POST data
-            // $order_id = isset($_POST['order_id']) && !empty($_POST['order_id']) ? intval($_POST['order_id']) : null;
+            // Convert USD amount to SERSH tokens
+            $token_amount = $this->convert_usd_to_tokens($usd_amount, $gateway);
             
-            // WC_Sersh_Payment::log('received order_id: ' . $order_id, 'debug');
-
-            // If no order ID was passed, check if there's one in the session
-            // if (!$order_id) {
-            //     $order_id = WC()->session ? WC()->session->get('order_awaiting_payment') : null;
-            //     WC_Sersh_Payment::log('session order_id: ' . $order_id, 'debug');
-            // }
+            // Log the conversion for debugging
+            WC_Sersh_Payment::log(sprintf(
+                'Converting %f USD to %f SERSH tokens',
+                $usd_amount,
+                $token_amount
+            ), 'debug');
             
-            // If we still don't have an order ID, create a proper order
-            // if (!$order_id) {
-                // Check if cart exists and is not empty
-                // if (!WC()->cart || WC()->cart->is_empty()) {
-                //     throw new Exception(__('Cannot create order: cart is empty', 'wc-sersh-payment'));
-                // }
-                
-                // Create a new order properly using the WooCommerce checkout process
-                try {
-                    // Get customer information
-                    // $customer_data = array();
-                    // if (WC()->customer) {
-                    //     $customer_data = array(
-                    //         'billing_first_name' => WC()->customer->get_billing_first_name(),
-                    //         'billing_last_name' => WC()->customer->get_billing_last_name(),
-                    //         'billing_company' => WC()->customer->get_billing_company(),
-                    //         'billing_address_1' => WC()->customer->get_billing_address_1(),
-                    //         'billing_address_2' => WC()->customer->get_billing_address_2(),
-                    //         'billing_city' => WC()->customer->get_billing_city(),
-                    //         'billing_state' => WC()->customer->get_billing_state(),
-                    //         'billing_postcode' => WC()->customer->get_billing_postcode(),
-                    //         'billing_country' => WC()->customer->get_billing_country(),
-                    //         'billing_email' => WC()->customer->get_billing_email(),
-                    //         'billing_phone' => WC()->customer->get_billing_phone(),
-                    //         'shipping_first_name' => WC()->customer->get_shipping_first_name(),
-                    //         'shipping_last_name' => WC()->customer->get_shipping_last_name(),
-                    //         'shipping_company' => WC()->customer->get_shipping_company(),
-                    //         'shipping_address_1' => WC()->customer->get_shipping_address_1(),
-                    //         'shipping_address_2' => WC()->customer->get_shipping_address_2(),
-                    //         'shipping_city' => WC()->customer->get_shipping_city(),
-                    //         'shipping_state' => WC()->customer->get_shipping_state(),
-                    //         'shipping_postcode' => WC()->customer->get_shipping_postcode(),
-                    //         'shipping_country' => WC()->customer->get_shipping_country(),
-                    //     );
-                    // }
-                    
-                    // // Ensure we have at least an email address for the order
-                    // if (empty($customer_data['billing_email']) && WC()->session) {
-                    //     $customer = WC()->session->get('customer');
-                    //     if (!empty($customer['email'])) {
-                    //         $customer_data['billing_email'] = $customer['email'];
-                    //     }
-                    // }
-                    
-                    // // If we still don't have an email and user is logged in, use their account email
-                    // if (empty($customer_data['billing_email']) && is_user_logged_in()) {
-                    //     $current_user = wp_get_current_user();
-                    //     $customer_data['billing_email'] = $current_user->user_email;
-                        
-                    //     // If we don't have a name, use their account name
-                    //     if (empty($customer_data['billing_first_name'])) {
-                    //         $customer_data['billing_first_name'] = $current_user->first_name;
-                    //         $customer_data['billing_last_name'] = $current_user->last_name;
-                    //     }
-                    // }
-                    
-                    // // Set payment method to SERSH
-                    // $customer_data['payment_method'] = 'sersh';
-                    
-                    // Create the order using WC_Checkout
-                    $checkout = WC()->checkout();
-                    if (!$checkout) {
-                        throw new Exception(__('Checkout process not available', 'wc-sersh-payment'));
-                    }
-
-    
-              
-                    
-                    
-                    // Store the wallet address in the order meta
-                    // $order->update_meta_data('_sersh_payer_wallet', $user_address);
-                    // $order->add_order_note(sprintf(
-                    //     __('Payer wallet address (Order creation): %s', 'wc-sersh-payment'),
-                    //     $user_address
-                    // ));
-                    
-                    // Store order ID in session
-                    // if (WC()->session) {
-                    //     WC()->session->set('order_awaiting_payment', $order_id);
-                    // }
-                    
-                    // // Save the order
-                    // $order->save();
-                    
-                    // if ('yes' === $gateway->get_option('debug')) {
-                    //     WC_Sersh_Payment::log(sprintf(
-                    //         'Created order #%d for payment signature. Customer: %s %s, Email: %s',
-                    //         $order_id,
-                    //         $customer_data['billing_first_name'] ?? 'Unknown',
-                    //         $customer_data['billing_last_name'] ?? '',
-                    //         $customer_data['billing_email'] ?? 'Unknown'
-                    //     ), 'debug');
-                    // }
-                    
-                } catch (Exception $e) {
-                    WC_Sersh_Payment::log('Error creating order: ' . $e->getMessage(), 'error');
-                    throw new Exception(__('Failed to create order: ', 'wc-sersh-payment') . $e->getMessage());
-                }
-            // }
-            
-            // Log information about the order
-            // if ('yes' === $gateway->get_option('debug')) {
-            //     WC_Sersh_Payment::log(sprintf(
-            //         'Payment signature requested - USD: %f, User: %s, Order ID: %s',
-            //         $usd_amount,
-            //         $user_address,
-            //         $order_id
-            //     ), 'debug');
-            // }
-
             // Getting user ID from WordPress
             $user_id = get_current_user_id();
 
@@ -487,42 +166,14 @@ class Sersh_Ajax_Handler {
             // Get signature
             require_once WC_SERSH_PLUGIN_DIR . 'includes/class-sersh-payment-signer.php';
             $signer = new Sersh_Payment_Signer();
-            $result = $signer->generate_payment_signature($user_id, $usd_amount, $nonce, $expiry, $user_address);
+            
+            // Convert token amount to wei (18 decimals)
+            $token_amount_wei = $this->convert_tokens_to_wei($token_amount, $gateway);
+            
+            // Send the token amount in wei to the signature endpoint
+            $result = $signer->generate_payment_signature($user_id, $token_amount_wei, $nonce, $expiry, $user_address);
             
             if ($result['success']) {
-                // Add debug information if enabled
-                // if ('yes' === $gateway->get_option('debug')) {
-                //     WC_Sersh_Payment::log(sprintf(
-                //         'Payment signature generated successfully for address: %s, Order ID: %d',
-                //         $user_address,
-                //         $order_id
-                //     ), 'debug');
-                // }
-                
-                // Include the order ID in the response
-                // $result['data']['orderId'] = $order_id;
-                
-                // Save wallet address to the order if not already saved
-                $order = wc_get_order($order_id);
-                // if ($order) {
-                //     $existing_wallet = $order->get_meta('_sersh_payer_wallet');
-                //     if (empty($existing_wallet)) {
-                //         $order->update_meta_data('_sersh_payer_wallet', $user_address);
-                //         $order->add_order_note(sprintf(
-                //             __('Payer wallet address (Signature generation): %s', 'wc-sersh-payment'),
-                //             $user_address
-                //         ));
-                //         $order->save();
-                        
-                //         if ('yes' === $gateway->get_option('debug')) {
-                //             WC_Sersh_Payment::log(sprintf(
-                //                 'Saved wallet address to order #%d during signature generation',
-                //                 $order_id
-                //             ), 'debug');
-                //         }
-                //     }
-                // }
-                
                 wp_send_json_success($result['data']);
             } else {
                 WC_Sersh_Payment::log('Payment signature generation failed: ' . $result['error'], 'error');
@@ -533,6 +184,140 @@ class Sersh_Ajax_Handler {
             WC_Sersh_Payment::log('AJAX error: ' . $e->getMessage(), 'error');
             wp_send_json_error($e->getMessage());
         }
+    }
+    
+    /**
+     * Convert USD amount to SERSH tokens
+     *
+     * @param float $usd_amount Amount in USD
+     * @param WC_Gateway_Sersh $gateway Gateway instance
+     * @return float Amount in SERSH tokens
+     */
+    private function convert_usd_to_tokens($usd_amount, $gateway) {
+        // Get token price from price feed or fallback to fixed price
+        $price_feed_url = $gateway->get_option('price_feed_url');
+        $token_price = floatval($gateway->get_option('token_price', 1.0));
+        
+        if (!empty($price_feed_url)) {
+            try {
+                WC_Sersh_Payment::log(sprintf(
+                    'Fetching SERSH price from: %s',
+                    $price_feed_url
+                ), 'debug');
+                
+                $response = wp_remote_get($price_feed_url, array(
+                    'timeout' => 30,
+                    'headers' => array(
+                        'Accept' => 'application/json'
+                    )
+                ));
+                
+                if (!is_wp_error($response)) {
+                    $body = wp_remote_retrieve_body($response);
+                    WC_Sersh_Payment::log(sprintf(
+                        'Price feed response: %s',
+                        $body
+                    ), 'debug');
+                    
+                    $price_data = json_decode($body, true);
+                    
+                    // Check if price data was returned in the correct format for SERSH token API
+                    if (isset($price_data['quotes']) && 
+                        is_array($price_data['quotes']) && 
+                        !empty($price_data['quotes']) && 
+                        isset($price_data['quotes'][0]['price'])) {
+                        
+                        // Get the direct price value from quotes array
+                        $token_price = floatval($price_data['quotes'][0]['price']);
+                        
+                        WC_Sersh_Payment::log(sprintf(
+                            'Got SERSH token price from API: %f USD/SERSH (token: %s)',
+                            $token_price,
+                            $price_data['symbol'] ?? 'SERSH'
+                        ), 'debug');
+                    } else {
+                        WC_Sersh_Payment::log(
+                            'Price feed did not return data in expected format, falling back to fixed price',
+                            'warning'
+                        );
+                    }
+                } else {
+                    WC_Sersh_Payment::log(sprintf(
+                        'Error fetching price feed: %s',
+                        $response->get_error_message()
+                    ), 'error');
+                }
+            } catch (Exception $e) {
+                WC_Sersh_Payment::log('Error processing price feed: ' . $e->getMessage(), 'error');
+                // Fall back to fixed price
+            }
+        } else {
+            WC_Sersh_Payment::log('No price feed URL configured, using fixed price', 'info');
+        }
+        
+        // Ensure token price is positive
+        if ($token_price <= 0) {
+            $token_price = 1.0; // Fallback to 1:1 if price is invalid
+            WC_Sersh_Payment::log('Invalid token price, using 1:1 conversion', 'warning');
+        }
+        
+        // Calculate token amount (USD amount divided by token price)
+        $token_amount = $usd_amount / $token_price;
+        
+        // Apply a correction factor of 1/100 to fix the calculation
+        // This is needed because something in our process is resulting in values 100x larger than expected
+        $token_amount = $token_amount / 100;
+        
+        WC_Sersh_Payment::log(sprintf(
+            'Price conversion (with 1/100 correction factor): %f USD = %f SERSH (price: %f USD/SERSH)',
+            $usd_amount,
+            $token_amount,
+            $token_price
+        ), 'info');
+        
+        return $token_amount;
+    }
+    
+    /**
+     * Convert SERSH tokens to wei (18 decimals)
+     *
+     * @param float $token_amount Amount in SERSH tokens
+     * @param WC_Gateway_Sersh $gateway Gateway instance
+     * @return string Amount in wei (as a string)
+     */
+    private function convert_tokens_to_wei($token_amount, $gateway) {
+        // Get token decimals from settings, default to 18
+        $decimals = intval($gateway->get_option('token_decimals', 18));
+        
+        WC_Sersh_Payment::log(sprintf(
+            'Converting %f SERSH tokens to wei using %d decimals',
+            $token_amount,
+            $decimals
+        ), 'debug');
+        
+        // Check if BC Math is available
+        if (function_exists('bcmul') && function_exists('bcpow')) {
+            // Calculate wei amount using BC Math (token amount * 10^decimals)
+            $wei_amount = bcmul((string)$token_amount, bcpow('10', (string)$decimals, 0), 0);
+            
+            WC_Sersh_Payment::log('Using BC Math for high precision conversion', 'debug');
+        } else {
+            // Alternative calculation method without BC Math
+            // Note: This has precision limitations for very large numbers
+            $wei_amount = $token_amount * pow(10, $decimals);
+            $wei_amount = number_format($wei_amount, 0, '', '');
+            
+            WC_Sersh_Payment::log('BC Math unavailable, using alternative conversion method', 'debug');
+        }
+        
+        WC_Sersh_Payment::log(sprintf(
+            'Conversion result: %f SERSH = %s wei (%d decimals)',
+            $token_amount,
+            $wei_amount,
+            $decimals
+        ), 'info');
+        
+        return $wei_amount;
     }
 
     /**

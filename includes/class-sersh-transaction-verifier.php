@@ -72,7 +72,7 @@ class Sersh_Transaction_Verifier {
                     'params' => array($tx_hash),
                     'id' => 1
                 )),
-                'timeout' => 30
+                'timeout' => 120
             ));
 
             if (is_wp_error($response)) {
@@ -158,7 +158,7 @@ class Sersh_Transaction_Verifier {
                 'params' => array($tx_hash),
                 'id' => 1
             )),
-            'timeout' => 30
+            'timeout' => 120
         ));
 
         if (is_wp_error($response)) {
@@ -221,7 +221,7 @@ class Sersh_Transaction_Verifier {
 
         try {
             $response = wp_remote_get($price_feed_url, array(
-                'timeout' => 15,
+                'timeout' => 120,
                 'headers' => array(
                     'Accept' => 'application/json'
                 )

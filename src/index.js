@@ -174,94 +174,118 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
             const web3 = new Web3(window.ethereum);
 
             // Get payment signature from backend
-            const response = await fetch(settings.ajaxUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    action: 'wc_sersh_get_payment_signature',
-                    user_address: walletAddress,
-                    amount: cartTotal.toString()
-                }),
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000); // 30 second timeout
 
-            if (!response.ok) {
-                throw new Error('Failed to get payment signature');
-            }
-
-            const signatureData = await response.json();
-            if (!signatureData.success) {
-                throw new Error(signatureData.data);
-            }
-
-            // Process the payment with the smart contract
-            const { message, signature, orderId } = signatureData.data;
-            const paymentContract = new web3.eth.Contract(
-                PaymentABI,
-                settings.paymentAddress
-            );
-            console.log(settings);
-            const tokenContract = new web3.eth.Contract(
-                ERC20ABI,
-                settings.tokenAddress
-            );
-
-            const allowance = await tokenContract.methods.allowance(walletAddress, settings.paymentAddress).call();
-            console.log({
-                allowance,
-                amount: message.amount,
-            });
-
-            if (web3.utils.toBN(allowance).lt(web3.utils.toBN(message.amount))) {
-                const tx = await tokenContract.methods
-                    .approve(settings.paymentAddress, message.amount)
-                    .send({ from: walletAddress });
-
-                console.log({
-                    tx,
-                });
-            }
-
-            const tx = await paymentContract.methods
-                .paySubscription(message.userId, message.amount, message.nonce, message.expiry, signature)
-                .send({ from: walletAddress });
-
-            // Explicitly save transaction hash via AJAX to ensure it's recorded properly
             try {
-                // console.log('Saving transaction hash via AJAX:', tx.transactionHash, 'for order:', orderId);
-                const verifyResponse = await fetch(settings.ajaxUrl, {
+                const response = await fetch(settings.ajaxUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
                     },
                     body: new URLSearchParams({
-                        action: 'wc_sersh_verify_payment',
-                        nonce: settings.nonce,
-                        tx_hash: tx.transactionHash,
-                        user_address: walletAddress
-                    }),
-                });
-                
-                // const verifyResult = await verifyResponse.json();
-                // console.log('Transaction verification result:', verifyResult);
-            } catch (verifyError) {
-                console.error('Error verifying transaction:', verifyError);
-                // Continue with checkout even if verification has an error
-                // We don't want to block the user if only the verification fails
-            }
-
-            return {
-                type: 'success',
-                meta: {
-                    paymentMethodData: {
+                        action: 'wc_sersh_get_payment_signature',
                         user_address: walletAddress,
-                        transaction_hash: tx.transactionHash,
-                        user_id: message.userId,
-                        // order_id: orderId.toString(), // Convert to string to ensure correct type
+                        amount: cartTotal.toString()
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`Network response failed with status ${response.status}: ${response.statusText}`);
+                }
+
+                const signatureData = await response.json();
+                if (!signatureData.success) {
+                    throw new Error(signatureData.data);
+                }
+
+                // Process the payment with the smart contract
+                const { message, signature, orderId } = signatureData.data;
+                const paymentContract = new web3.eth.Contract(
+                    PaymentABI,
+                    settings.paymentAddress
+                );
+                console.log(settings);
+                const tokenContract = new web3.eth.Contract(
+                    ERC20ABI,
+                    settings.tokenAddress
+                );
+
+                // Get the amount value from message.price instead of message.amount
+                const tokenAmount = message.price;
+                
+                const allowance = await tokenContract.methods.allowance(walletAddress, settings.paymentAddress).call();
+                console.log({
+                    allowance,
+                    price: tokenAmount, // Log the price from the correct property
+                });
+
+                if (web3.utils.toBN(allowance).lt(web3.utils.toBN(tokenAmount))) {
+                    const tx = await tokenContract.methods
+                        .approve(settings.paymentAddress, tokenAmount)
+                        .send({ from: walletAddress });
+
+                    console.log({
+                        tx,
+                    });
+                }
+
+                const tx = await paymentContract.methods
+                    .paySubscription(message.userId, tokenAmount, message.nonce, message.expiry, signature)
+                    .send({ from: walletAddress });
+
+                // Explicitly save transaction hash via AJAX to ensure it's recorded properly
+                try {
+                    // console.log('Saving transaction hash via AJAX:', tx.transactionHash, 'for order:', orderId);
+                    const verifyController = new AbortController();
+                    const verifyTimeoutId = setTimeout(() => verifyController.abort(), 60000); // 30 second timeout
+                    
+                    const verifyResponse = await fetch(settings.ajaxUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            action: 'wc_sersh_verify_payment',
+                            nonce: settings.nonce,
+                            tx_hash: tx.transactionHash,
+                            user_address: walletAddress
+                        }),
+                        signal: verifyController.signal
+                    });
+                    
+                    clearTimeout(verifyTimeoutId);
+                    
+                    if (!verifyResponse.ok) {
+                        console.error(`Verification response failed with status ${verifyResponse.status}: ${verifyResponse.statusText}`);
+                    }
+                } catch (verifyError) {
+                    console.error('Error verifying transaction:', verifyError);
+                    // Continue with checkout even if verification has an error
+                    // We don't want to block the user if only the verification fails
+                }
+
+                return {
+                    type: 'success',
+                    meta: {
+                        paymentMethodData: {
+                            user_address: walletAddress,
+                            transaction_hash: tx.transactionHash,
+                            user_id: message.userId,
+                            // order_id: orderId.toString(), // Convert to string to ensure correct type
+                        },
                     },
-                },
-            };
+                };
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.error('Request timed out after 30 seconds');
+                    throw new Error(settings.i18n.requestTimeout || 'Request timed out. Please try again.');
+                }
+                throw error;
+            }
         } catch (error) {
             console.error('Payment processing error:', error);
             setError(error.message);
@@ -377,7 +401,7 @@ const SershPaymentMethod = {
     label: <Label />,
     content: <PaymentMethodContent />,
     edit: <Content />,
-    canMakePayment: () => typeof window.ethereum !== 'undefined',
+    canMakePayment: () => true,
     ariaLabel: __('SERSH Payment', 'wc-sersh-payment'),
     supports: {
         features: window.wcSershData?.supports || [],
