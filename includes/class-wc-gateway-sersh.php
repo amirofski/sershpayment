@@ -165,6 +165,15 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
         // Add wallet address to new admin orders page
         add_filter('manage_woocommerce_page_wc-orders_columns', array($this, 'add_wallet_address_column'), 20);
         add_action('manage_woocommerce_page_wc-orders_custom_column', array($this, 'display_wallet_address_in_column'), 10, 2);
+
+        // Add price display hooks for SERSH price
+        add_action('wp_loaded', array($this, 'add_price_display_hooks'));
+
+        // Add order details to admin
+        add_action('woocommerce_admin_order_totals_after_total', array($this, 'display_sersh_price_in_admin_order'));
+        
+        // Add order details to frontend
+        add_action('woocommerce_order_details_after_order_table', array($this, 'display_sersh_price_in_frontend_order'));
     }
 
     /**
@@ -297,15 +306,15 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             'price_feed_url' => array(
                 'title'       => __('Price Feed URL', 'wc-sersh-payment'),
                 'type'        => 'text',
-                'description' => __('URL to fetch SERSH token price in USD.', 'wc-sersh-payment'),
-                'default'     => 'https://api.example.com/sersh/price',
+                'description' => __('URL for retrieving the current SERSH token price. This is used to convert USD prices to SERSH amounts.', 'wc-sersh-payment'),
+                'default'     => '',
                 'desc_tip'    => true,
             ),
             'token_price' => array(
-                'title'       => __('SERSH Token Price (USD)', 'wc-sersh-payment'),
+                'title'       => __('Default Token Price', 'wc-sersh-payment'),
                 'type'        => 'text',
-                'description' => __('Fixed price of 1 SERSH token in USD. Used if price feed is not available.', 'wc-sersh-payment'),
-                'default'     => '1.00',
+                'description' => __('Default SERSH token price in USD, used when price feed is unavailable.', 'wc-sersh-payment'),
+                'default'     => '1.0',
                 'desc_tip'    => true,
             ),
             'price_adjustment_factor' => array(
@@ -418,11 +427,6 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
                         throw new Exception('Failed to save private key in settings');
                     }
                     
-                    if ($saved_settings['private_key'] !== $result['private_key']) {
-                        error_log('SERSH Payment - Saved key does not match generated key');
-                        throw new Exception('Saved key does not match generated key');
-                    }
-                    
                     // Calculate and display the corresponding Ethereum address
                     $address = $this->get_ethereum_address($result['private_key']);
                     WC_Admin_Settings::add_message(sprintf(
@@ -468,6 +472,14 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
                 }
             } else {
                 error_log('SERSH Payment - Failed to save gateway settings');
+            }
+
+            // Check if key changed
+            if (isset($saved_settings['private_key']) && isset($result['private_key'])) {
+                if ($saved_settings['private_key'] !== $result['private_key']) {
+                    error_log('SERSH Payment - Saved key does not match generated key');
+                    throw new Exception('Saved key does not match generated key');
+                }
             }
 
             return $saved;
@@ -1340,83 +1352,353 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
     }
 
     /**
+     * Get current SERSH token price
+     *
+     * @return float Current token price in USD
+     */
+    public function get_current_token_price() {
+        // Get price feed URL from settings
+        $price_feed_url = $this->get_option('price_feed_url');
+        $default_price = floatval($this->get_option('token_price', 1.0));
+        
+        // If no price feed URL is set, return default price
+        if (empty($price_feed_url)) {
+            $this->log('No price feed URL configured, using default price: ' . $default_price, 'debug');
+            return $default_price;
+        }
+        
+        // Try to get price from transient first
+        $cached_price = get_transient('sersh_token_price');
+        if (false !== $cached_price) {
+            $this->log('Using cached token price: ' . $cached_price, 'debug');
+            return floatval($cached_price);
+        }
+        
+        try {
+            $this->log('Fetching token price from: ' . $price_feed_url, 'debug');
+            
+            // Fetch price from feed URL
+            $response = wp_remote_get($price_feed_url, array(
+                'timeout' => 30,
+                'headers' => array('Accept' => 'application/json')
+            ));
+            
+            if (is_wp_error($response)) {
+                throw new Exception($response->get_error_message());
+            }
+            
+            $body = wp_remote_retrieve_body($response);
+            $price_data = json_decode($body, true);
+            
+            $this->log('Price feed response: ' . wp_json_encode($price_data), 'debug');
+            
+            // Check if price data was returned in the correct format
+            if (isset($price_data['quotes']) && 
+                is_array($price_data['quotes']) && 
+                !empty($price_data['quotes']) && 
+                isset($price_data['quotes'][0]['price'])) {
+                
+                // Get the price value
+                $token_price = floatval($price_data['quotes'][0]['price']);
+                
+                // Apply price adjustment factor if set
+                $adjustment_factor = floatval($this->get_option('price_adjustment_factor', 1.0));
+                if ($adjustment_factor > 0 && $adjustment_factor != 1.0) {
+                    $token_price = $token_price * $adjustment_factor;
+                    $this->log('Applied price adjustment factor: ' . $adjustment_factor . ', adjusted price: ' . $token_price, 'debug');
+                }
+                
+                // Ensure price is positive
+                if ($token_price <= 0) {
+                    $this->log('Received invalid price (<=0): ' . $token_price . ', using default: ' . $default_price, 'warning');
+                    return $default_price;
+                }
+                
+                $this->log('Successfully fetched token price: ' . $token_price, 'debug');
+                
+                // Cache the price for 5 minutes
+                set_transient('sersh_token_price', $token_price, 5 * MINUTE_IN_SECONDS);
+                
+                return $token_price;
+            } else {
+                $this->log('Invalid price feed format: ' . wp_json_encode($price_data), 'warning');
+            }
+        } catch (Exception $e) {
+            $this->log('Error getting token price: ' . $e->getMessage(), 'error');
+        }
+        
+        // Return default price if anything fails
+        $this->log('Falling back to default price: ' . $default_price, 'debug');
+        return $default_price;
+    }
+
+    /**
      * Convert USD amount to SERSH tokens
+     * This function is used for DISPLAY purposes across all views.
+     * The actual payment amount will be adjusted during the payment process
+     * to ensure what users see is what they pay.
      *
      * @param float $usd_amount Amount in USD
-     * @return string Amount in SERSH tokens (in wei)
+     * @return float Amount in SERSH tokens
      */
-    public function convert_usd_to_tokens($usd_amount) {
-        try {
-            if (empty($this->price_feed_url)) {
-                throw new Exception(__('Price feed URL not configured.', 'wc-sersh-payment'));
-            }
+    public function convert_usd_to_sersh_tokens($usd_amount) {
+        $token_price = $this->get_current_token_price();
+        
+        // Standard conversion formula used for ALL price displays:
+        // SERSH amount = USD amount / token price
+        // If token price is $0.06, then 1 USD = 16.67 SERSH
+        $sersh_amount = $usd_amount / $token_price;
+        
+        $this->log(sprintf(
+            'Converting %f USD to %f SERSH (token price: %f USD)',
+            $usd_amount,
+            $sersh_amount,
+            $token_price
+        ), 'debug');
+        
+        return $sersh_amount;
+    }
 
-            // Fetch current price from the price feed
-            $response = wp_remote_get($this->price_feed_url, array(
-                'timeout'     => 30,
-                'user-agent'  => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
-                'headers'     => array('Accept' => 'application/json'),
-            ));
-
-            if (is_wp_error($response)) {
-                throw new Exception(__('Error fetching token price: ', 'wc-sersh-payment') . $response->get_error_message());
-            }
-
-            $body = wp_remote_retrieve_body($response);
-            $data = json_decode($body, true);
-
-            if (!isset($data['quotes']) || !is_array($data['quotes']) || empty($data['quotes'])) {
-                throw new Exception(__('Invalid price data received from API.', 'wc-sersh-payment'));
-            }
-
-            // Get the USD quote
-            $usd_quote = null;
-            foreach ($data['quotes'] as $quote) {
-                if (isset($quote['currency']) && $quote['currency'] === 'USD' && isset($quote['price'])) {
-                    $usd_quote = $quote;
-                    break;
-                }
-            }
-
-            if (!$usd_quote || !isset($usd_quote['price']) || !is_numeric($usd_quote['price'])) {
-                throw new Exception(__('Invalid USD price data received from API.', 'wc-sersh-payment'));
-            }
-
-            $token_price = (float) $usd_quote['price'];
-            if ($token_price <= 0) {
-                throw new Exception(__('Invalid token price received from API.', 'wc-sersh-payment'));
-            }
-
-            // Calculate token amount (USD amount divided by token price)
-            $token_amount = $usd_amount / $token_price;
-            
-            // Format the token amount with exactly 18 decimals without scientific notation
-            $formatted_amount = number_format($token_amount, 18, '.', '');
-            
-            // Remove trailing zeros after decimal point while keeping exactly 18 decimals
-            $parts = explode('.', $formatted_amount);
-            $decimals = str_pad(rtrim($parts[1], '0'), 18, '0');
-            $formatted_amount = $parts[0] . '.' . $decimals;
-
-            // Log the conversion if debug is enabled
-            if ('yes' === $this->get_option('debug')) {
-                wc_get_logger()->debug(
-                    sprintf(
-                        'convert_usd_to_tokens:Price conversion: %f USD = %s SERSH (price: %f USD/SERSH)',
-                        $usd_amount,
-                        $formatted_amount,
-                        $token_price
-                    ),
-                    array('source' => 'sersh-payment')
-                );
-            }
-
-            return $formatted_amount;
-            
-        } catch (Exception $e) {
-            error_log('SERSH Payment - Price conversion error: ' . $e->getMessage());
-            throw new Exception(__('Failed to get current SERSH token price. Please try again later.', 'wc-sersh-payment'));
+    /**
+     * Add price display hooks
+     */
+    public function add_price_display_hooks() {
+        // Skip if gateway is not available
+        if (!$this->is_available()) {
+            return;
         }
+
+        // Format price to show both USD and SERSH
+        add_filter('woocommerce_get_price_html', array($this, 'add_sersh_price_to_display'), 10, 2);
+        
+        // Add SERSH price to cart subtotal
+        add_filter('woocommerce_cart_subtotal', array($this, 'add_sersh_price_to_subtotal'), 10, 3);
+        
+        // Add SERSH price to cart total
+        add_filter('woocommerce_cart_totals_order_total_html', array($this, 'add_sersh_price_to_total'), 10, 1);
+        
+        // Add SERSH price to order totals
+        add_filter('woocommerce_get_order_item_totals', array($this, 'add_sersh_price_to_order_total'), 10, 2);
+    }
+
+    /**
+     * Add SERSH price to product price display
+     *
+     * @param string $price_html Price HTML
+     * @param object $product WC_Product
+     * @return string Modified price HTML
+     */
+    public function add_sersh_price_to_display($price_html, $product) {
+        // No longer restrict to only cart and checkout pages
+        // Allow this to work on product and shop pages too
+        
+        // Get WooCommerce decimal settings
+        $wc_price_decimals = wc_get_price_decimals();
+        
+        // Get raw product price (using 'edit' to get unformatted value)
+        $price = $product->get_price('edit');
+        
+        if ($price) {
+            // Log the raw price for debugging
+            $this->log(sprintf(
+                'Product price: %f (WC decimals: %d, Product ID: %d)',
+                $price,
+                $wc_price_decimals,
+                $product->get_id()
+            ), 'debug');
+            
+            // Handle price scaling when WooCommerce decimals is set to 0
+            if ($wc_price_decimals === 0) {
+                // Unscale the price to get the true value
+                $unscaled_price = $price / 100;
+                
+                $this->log(sprintf(
+                    'Unscaling product price: %f → %f (Product ID: %d)',
+                    $price,
+                    $unscaled_price,
+                    $product->get_id()
+                ), 'debug');
+                
+                $sersh_amount = $this->convert_usd_to_sersh_tokens($unscaled_price);
+            } else {
+                $sersh_amount = $this->convert_usd_to_sersh_tokens($price);
+            }
+            
+            // Format SERSH amount with 8 decimal places for accuracy
+            $formatted_sersh = number_format($sersh_amount, 8, '.', ',');
+            
+            // Add SERSH price display
+            $price_html .= sprintf(
+                '<small class="sersh-price">(%s %s SERSH)</small>',
+                __('≈', 'wc-sersh-payment'),
+                $formatted_sersh
+            );
+        }
+        
+        return $price_html;
+    }
+
+    /**
+     * Add SERSH price to cart subtotal
+     *
+     * @param string $subtotal Formatted subtotal
+     * @param bool $compound Is compound
+     * @param WC_Cart $cart Cart object
+     * @return string
+     */
+    public function add_sersh_price_to_subtotal($subtotal, $compound, $cart) {
+        if (!$this->is_available()) {
+            return $subtotal;
+        }
+
+        // Get WooCommerce decimal settings
+        $wc_price_decimals = wc_get_price_decimals();
+        
+        // Get raw subtotal amount
+        $subtotal_amount = $cart->get_subtotal();
+        
+        // Log the raw subtotal for debugging
+        $this->log(sprintf(
+            'Raw cart subtotal: %f (WC decimals: %d)',
+            $subtotal_amount,
+            $wc_price_decimals
+        ), 'debug');
+        
+        // Handle price scaling when WooCommerce decimals is set to 0
+        if ($wc_price_decimals === 0) {
+            // Unscale the price to get the true value
+            $unscaled_subtotal = $subtotal_amount / 100;
+            
+            $this->log(sprintf(
+                'Unscaling cart subtotal: %f → %f',
+                $subtotal_amount,
+                $unscaled_subtotal
+            ), 'debug');
+            
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($unscaled_subtotal);
+        } else {
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($subtotal_amount);
+        }
+        
+        // Format SERSH amount
+        $formatted_sersh = number_format($sersh_amount, 8, '.', ',');
+        
+        // Append SERSH amount to subtotal
+        $subtotal .= sprintf(
+            '<div class="sersh-price-display cart-subtotal-sersh">(%s %s SERSH)</div>',
+            __('≈', 'wc-sersh-payment'),
+            $formatted_sersh
+        );
+        
+        return $subtotal;
+    }
+
+    /**
+     * Add SERSH price to cart total
+     *
+     * @param string $total Formatted total
+     * @return string
+     */
+    public function add_sersh_price_to_total($total) {
+        if (!$this->is_available()) {
+            return $total;
+        }
+
+        // Get WooCommerce decimal settings
+        $wc_price_decimals = wc_get_price_decimals();
+        
+        // Get raw total amount using individual components to ensure accuracy
+        $total_amount = WC()->cart->get_cart_contents_total() + 
+                       WC()->cart->get_fee_total() + 
+                       WC()->cart->get_shipping_total() + 
+                       WC()->cart->get_tax_total();
+                       
+        // Log the raw total for debugging
+        $this->log(sprintf(
+            'Raw cart total: %f (WC decimals: %d)',
+            $total_amount,
+            $wc_price_decimals
+        ), 'debug');
+        
+        // Handle price scaling when WooCommerce decimals is set to 0
+        if ($wc_price_decimals === 0) {
+            // Unscale the price to get the true value
+            $unscaled_total = $total_amount / 100;
+            
+            $this->log(sprintf(
+                'Unscaling cart total: %f → %f',
+                $total_amount,
+                $unscaled_total
+            ), 'debug');
+            
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($unscaled_total);
+        } else {
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($total_amount);
+        }
+        
+        // Format SERSH amount
+        $formatted_sersh = number_format($sersh_amount, 8, '.', ',');
+        
+        // Append SERSH amount to total
+        $total .= sprintf(
+            '<div class="sersh-price-display cart-total-sersh">(%s %s SERSH)</div>',
+            __('≈', 'wc-sersh-payment'),
+            $formatted_sersh
+        );
+        
+        return $total;
+    }
+
+    /**
+     * Add SERSH price to order totals
+     *
+     * @param array $total_rows Order total rows
+     * @param object $order WC_Order
+     * @return array Modified total rows
+     */
+    public function add_sersh_price_to_order_total($total_rows, $order) {
+        if (isset($total_rows['order_total'])) {
+            // Get WooCommerce decimal settings
+            $wc_price_decimals = wc_get_price_decimals();
+            
+            // Get order total
+            $amount = $order->get_total('edit');
+            
+            // Log the raw total for debugging
+            $this->log(sprintf(
+                'Raw order total: %f (WC decimals: %d)',
+                $amount,
+                $wc_price_decimals
+            ), 'debug');
+            
+            // Handle price scaling when WooCommerce decimals is set to 0
+            if ($wc_price_decimals === 0) {
+                // Unscale the price to get the true value
+                $unscaled_amount = $amount / 100;
+                
+                $this->log(sprintf(
+                    'Unscaling order total: %f → %f',
+                    $amount,
+                    $unscaled_amount
+                ), 'debug');
+                
+                $sersh_amount = $this->convert_usd_to_sersh_tokens($unscaled_amount);
+            } else {
+                $sersh_amount = $this->convert_usd_to_sersh_tokens($amount);
+            }
+            
+            // Format SERSH amount with 8 decimal places for accuracy
+            $formatted_sersh = number_format($sersh_amount, 8, '.', ',');
+            
+            // Add SERSH price display
+            $total_rows['order_total']['value'] .= sprintf(
+                '<small class="sersh-price">(%s %s SERSH)</small>',
+                __('≈', 'wc-sersh-payment'),
+                $formatted_sersh
+            );
+        }
+        
+        return $total_rows;
     }
 
     /**
@@ -1542,5 +1824,115 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             // Use the static log method from the main plugin class
             WC_Sersh_Payment::log($message, $level);
         }
+    }
+
+    /**
+     * Display SERSH price in admin order details
+     *
+     * @param int $order_id
+     */
+    public function display_sersh_price_in_admin_order($order_id) {
+        if (!$this->is_available()) {
+            return;
+        }
+        
+        // Get WooCommerce decimal settings
+        $wc_price_decimals = wc_get_price_decimals();
+        
+        $order = wc_get_order($order_id);
+        $total = $order->get_total('edit');
+        
+        // Log the raw total for debugging
+        $this->log(sprintf(
+            'Admin order total: %f (WC decimals: %d)',
+            $total,
+            $wc_price_decimals
+        ), 'debug');
+        
+        // Handle price scaling when WooCommerce decimals is set to 0
+        if ($wc_price_decimals === 0) {
+            // Unscale the price to get the true value
+            $unscaled_total = $total / 100;
+            
+            $this->log(sprintf(
+                'Unscaling admin order total: %f → %f',
+                $total,
+                $unscaled_total
+            ), 'debug');
+            
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($unscaled_total);
+        } else {
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($total);
+        }
+        
+        // Format SERSH amount with 8 decimal places for accuracy
+        $formatted_sersh = number_format($sersh_amount, 8, '.', ',');
+        
+        // Add SERSH total line
+        ?>
+        <tr>
+            <td class="label"><?php esc_html_e('Total (SERSH):', 'wc-sersh-payment'); ?></td>
+            <td width="1%"></td>
+            <td class="total">
+                <?php echo esc_html($formatted_sersh); ?> SERSH
+                <small class="description">
+                    <?php esc_html_e('(SERSH token equivalent)', 'wc-sersh-payment'); ?>
+                </small>
+            </td>
+        </tr>
+        <?php
+    }
+
+    /**
+     * Display SERSH price in frontend order details
+     *
+     * @param WC_Order $order
+     */
+    public function display_sersh_price_in_frontend_order($order) {
+        if (!$this->is_available()) {
+            return;
+        }
+        
+        // Get WooCommerce decimal settings
+        $wc_price_decimals = wc_get_price_decimals();
+        
+        // Get order total
+        $total = $order->get_total('edit');
+        
+        // Log the raw total for debugging
+        $this->log(sprintf(
+            'Frontend order total: %f (WC decimals: %d)',
+            $total,
+            $wc_price_decimals
+        ), 'debug');
+        
+        // Handle price scaling when WooCommerce decimals is set to 0
+        if ($wc_price_decimals === 0) {
+            // Unscale the price to get the true value
+            $unscaled_total = $total / 100;
+            
+            $this->log(sprintf(
+                'Unscaling frontend order total: %f → %f',
+                $total,
+                $unscaled_total
+            ), 'debug');
+            
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($unscaled_total);
+        } else {
+            $sersh_amount = $this->convert_usd_to_sersh_tokens($total);
+        }
+        
+        // Format SERSH amount with 8 decimal places for accuracy
+        $formatted_sersh = number_format($sersh_amount, 8, '.', ',');
+        
+        ?>
+        <div class="sersh-price-total">
+            <h3><?php esc_html_e('SERSH Token Equivalent', 'wc-sersh-payment'); ?></h3>
+            <p>
+                <?php esc_html_e('Total in SERSH tokens:', 'wc-sersh-payment'); ?> 
+                <strong><?php echo esc_html($formatted_sersh); ?> SERSH</strong>
+            </p>
+        </div>
+        <?php
     }
 } 
