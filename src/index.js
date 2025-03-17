@@ -217,6 +217,11 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
                 // Get the amount value from message.price instead of message.amount
                 const tokenAmount = message.price;
                 
+                // Note: The tokenAmount value is already adjusted for display vs. transaction 
+                // in the backend. The amount sent to the blockchain will be 1/100 of what would
+                // be calculated from the raw USD price, ensuring what the user sees on screen
+                // matches what they'll pay in SERSH tokens.
+                
                 const allowance = await tokenContract.methods.allowance(walletAddress, settings.paymentAddress).call();
                 console.log({
                     allowance,

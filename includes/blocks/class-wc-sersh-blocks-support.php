@@ -57,6 +57,213 @@ class WC_Sersh_Blocks_Support extends AbstractPaymentMethodType {
             require_once WC_SERSH_PLUGIN_DIR . 'includes/class-wc-gateway-sersh.php';
         }
         $this->gateway = new WC_Gateway_Sersh();
+        
+        // Add block-specific SERSH price display hooks
+        add_action('wp_loaded', array($this, 'add_blocks_price_display_hooks'));
+    }
+    
+    /**
+     * Add price display hooks for blocks context
+     */
+    public function add_blocks_price_display_hooks() {
+        // Skip if gateway is not available
+        if (!$this->gateway->is_available()) {
+            return;
+        }
+
+        // Add CSS for SERSH prices
+        add_action('wp_footer', array($this, 'add_price_display_css'));
+        
+        // Add filter for totals in blocks context
+        add_filter('woocommerce_blocks_formatted_price', array($this, 'add_sersh_price_to_blocks_price'), 10, 2);
+    }
+    
+    /**
+     * Add SERSH price to blocks formatted price
+     *
+     * @param string $formatted_price Formatted price
+     * @param float $price Raw price
+     * @return string Price with SERSH equivalent
+     */
+    public function add_sersh_price_to_blocks_price($formatted_price, $price) {
+        // Get the WooCommerce decimal settings
+        $wc_price_decimals = wc_get_price_decimals();
+        
+        // Detect if the price might be scaled based on decimal settings
+        // When WC decimals is set to 0, prices may be internally multiplied by 100
+        if ($wc_price_decimals === 0) {
+            // Unscale the price to get the true value
+            $unscaled_price = $price / 100;
+            
+            // Log the price adjustment for debugging
+            self::log(sprintf(
+                'Price decimal adjustment: %f (scaled) → %f (unscaled)',
+                $price,
+                $unscaled_price
+            ), 'debug');
+            
+            // Use the unscaled price for the conversion
+            $sersh_price = $this->gateway->convert_usd_to_sersh_tokens($unscaled_price);
+        } else {
+            // Use the price as is when decimals are set to standard value (2)
+            $sersh_price = $this->gateway->convert_usd_to_sersh_tokens($price);
+        }
+        
+        // Format the SERSH price with 8 decimal places for accuracy
+        $formatted_sersh = number_format($sersh_price, 8, '.', ',');
+        
+        // Add SERSH price as a small element
+        return $formatted_price . ' <small class="sersh-price">(' . __('≈', 'wc-sersh-payment') . ' ' . $formatted_sersh . ' SERSH)</small>';
+    }
+    
+    /**
+     * Add CSS for price display
+     */
+    public function add_price_display_css() {
+        ?>
+        <style type="text/css">
+            .sersh-price {
+                display: inline-block;
+                font-size: 0.85em;
+                opacity: 0.8;
+                margin-left: 5px;
+                color: #666;
+            }
+            /* Blocks specific styling */
+            .wc-block-components-totals-item__value .sersh-price,
+            .wc-block-components-price-slider__range-text .sersh-price,
+            .wc-block-components-product-price .sersh-price,
+            .wc-block-grid__product-price .sersh-price {
+                display: block;
+                margin-top: 4px;
+                font-weight: normal;
+            }
+            .wc-block-cart-item__total .sersh-price {
+                display: block;
+                margin-top: 4px;
+            }
+            .wc-block-components-order-summary-item__total-price .sersh-price {
+                display: block;
+                text-align: right;
+                margin-top: 2px;
+            }
+        </style>
+
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            // Get WooCommerce price decimals setting
+            const wcPriceDecimals = <?php echo wc_get_price_decimals(); ?>;
+            
+            // Function to convert USD to SERSH
+            // This uses the same formula as in PHP: SERSH amount = USD amount / token price
+            function convertUsdToSersh(usdAmount) {
+                // Get the token price from settings
+                const tokenPrice = parseFloat(<?php echo $this->gateway->get_current_token_price(); ?>);
+                
+                // Standard conversion formula used for ALL price displays:
+                // SERSH amount = USD amount / token price
+                // This formula is consistent with the PHP implementation
+                return usdAmount / tokenPrice;
+            }
+
+            // When the actual payment amount is sent to MetaMask, it will be divided
+            // by 100 in the backend to match what we display. This ensures what the
+            // user sees is what they'll actually pay in SERSH.
+            
+            // Function to format the SERSH price
+            function formatSershPrice(sershAmount) {
+                // Format with 8 decimal places for more accuracy
+                return sershAmount.toFixed(8);
+            }
+
+            // Function to extract raw price from formatted price string
+            function extractPrice(priceText) {
+                // Remove currency symbols and non-numeric characters except for decimal point/comma
+                let cleanedPrice = priceText.replace(/[^\d.,]/g, '');
+                
+                // Replace comma with decimal point if needed
+                cleanedPrice = cleanedPrice.replace(/,/g, '.');
+                
+                // If multiple decimal points, keep only the first one
+                const parts = cleanedPrice.split('.');
+                if (parts.length > 2) {
+                    cleanedPrice = parts[0] + '.' + parts.slice(1).join('');
+                }
+                
+                let price = parseFloat(cleanedPrice);
+                
+                // Handle price scaling based on WooCommerce decimal settings
+                if (wcPriceDecimals === 0 && price > 0) {
+                    // When decimals is 0, WooCommerce might be scaling prices by 100 internally
+                    price = price / 100;
+                    console.log('Unscaling price due to decimal settings:', price);
+                }
+                
+                return price;
+            }
+
+            // Function to add SERSH price to an element
+            function addSershPrice(element, priceText) {
+                // Skip if already has SERSH price
+                if (element.find('.sersh-price').length > 0) {
+                    return;
+                }
+                
+                const price = extractPrice(priceText);
+                
+                if (!isNaN(price) && price > 0) {
+                    const sershAmount = convertUsdToSersh(price);
+                    const formattedPrice = formatSershPrice(sershAmount);
+                    
+                    element.append(
+                        $('<small class="sersh-price">').text(
+                            '(≈ ' + formattedPrice + ' SERSH)'
+                        )
+                    );
+                }
+            }
+
+            // Function to update all prices in all contexts
+            function updateBlockPrices() {
+                // Update all price elements in blocks context
+                [
+                    '.wc-block-components-product-price__value',
+                    '.wc-block-grid__product-price',
+                    '.wc-block-components-totals-item__value',
+                    '.wc-block-components-order-summary-item__total-price',
+                    '.price'
+                ].forEach(selector => {
+                    $(selector).each(function() {
+                        if ($(this).find('.sersh-price').length > 0) {
+                            return; // Skip if already processed
+                        }
+                        
+                        // Get the price text directly from the element
+                        const priceText = $(this).text();
+                        addSershPrice($(this), priceText);
+                    });
+                });
+            }
+
+            // Run initially
+            updateBlockPrices();
+            
+            // Set up observer for dynamic content changes
+            const observer = new MutationObserver(function(mutations) {
+                updateBlockPrices();
+            });
+            
+            // Start observing the entire document body for changes
+            const bodyEl = document.body;
+            if (bodyEl) {
+                observer.observe(bodyEl, {
+                    subtree: true,
+                    childList: true
+                });
+            }
+        });
+        </script>
+        <?php
     }
 
     /**

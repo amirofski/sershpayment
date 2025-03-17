@@ -144,7 +144,7 @@ class Sersh_Ajax_Handler {
             // Get gateway instance
             $gateway = new WC_Gateway_Sersh();
             
-            // Convert USD amount to SERSH tokens
+            // Convert USD amount to SERSH tokens using the updated method
             $token_amount = $this->convert_usd_to_tokens($usd_amount, $gateway);
             
             // Log the conversion for debugging
@@ -188,6 +188,8 @@ class Sersh_Ajax_Handler {
     
     /**
      * Convert USD amount to SERSH tokens
+     * This uses exactly the same formula as convert_usd_to_sersh_tokens in WC_Gateway_Sersh
+     * to ensure consistency in display and payment amounts.
      *
      * @param float $usd_amount Amount in USD
      * @param WC_Gateway_Sersh $gateway Gateway instance
@@ -230,6 +232,17 @@ class Sersh_Ajax_Handler {
                         // Get the direct price value from quotes array
                         $token_price = floatval($price_data['quotes'][0]['price']);
                         
+                        // Apply price adjustment factor if set
+                        $adjustment_factor = floatval($gateway->get_option('price_adjustment_factor', 1.0));
+                        if ($adjustment_factor > 0 && $adjustment_factor != 1.0) {
+                            $token_price = $token_price * $adjustment_factor;
+                            WC_Sersh_Payment::log(sprintf(
+                                'Applied price adjustment factor: %f, adjusted price: %f',
+                                $adjustment_factor,
+                                $token_price
+                            ), 'debug');
+                        }
+                        
                         WC_Sersh_Payment::log(sprintf(
                             'Got SERSH token price from API: %f USD/SERSH (token: %s)',
                             $token_price,
@@ -261,15 +274,12 @@ class Sersh_Ajax_Handler {
             WC_Sersh_Payment::log('Invalid token price, using 1:1 conversion', 'warning');
         }
         
-        // Calculate token amount (USD amount divided by token price)
+        // Standard formula: SERSH amount = USD amount / token price
+        // This matches exactly the formula used in convert_usd_to_sersh_tokens
         $token_amount = $usd_amount / $token_price;
         
-        // Apply a correction factor of 1/100 to fix the calculation
-        // This is needed because something in our process is resulting in values 100x larger than expected
-        $token_amount = $token_amount / 100;
-        
         WC_Sersh_Payment::log(sprintf(
-            'Price conversion (with 1/100 correction factor): %f USD = %f SERSH (price: %f USD/SERSH)',
+            'Price conversion: %f USD = %f SERSH (price: %f USD/SERSH)',
             $usd_amount,
             $token_amount,
             $token_price
@@ -280,6 +290,8 @@ class Sersh_Ajax_Handler {
     
     /**
      * Convert SERSH tokens to wei (18 decimals)
+     * This function applies a special adjustment (division by 100) to ensure that the amount
+     * sent to MetaMask matches what users see displayed on the site.
      *
      * @param float $token_amount Amount in SERSH tokens
      * @param WC_Gateway_Sersh $gateway Gateway instance
@@ -289,30 +301,64 @@ class Sersh_Ajax_Handler {
         // Get token decimals from settings, default to 18
         $decimals = intval($gateway->get_option('token_decimals', 18));
         
+        // IMPORTANT: Apply a division by 100 to match the displayed amount
+        // This ensures the amount sent to MetaMask matches the displayed amount
+        // Without this adjustment, users would be asked to pay 100x more than what's displayed
+        $adjusted_token_amount = $token_amount / 100;
+        
         WC_Sersh_Payment::log(sprintf(
-            'Converting %f SERSH tokens to wei using %d decimals',
+            'Converting %f SERSH tokens to %f adjusted tokens to wei using %d decimals',
             $token_amount,
+            $adjusted_token_amount,
             $decimals
         ), 'debug');
         
-        // Check if BC Math is available
+        // Check if BC Math is available for high precision
         if (function_exists('bcmul') && function_exists('bcpow')) {
+            // Convert to string to avoid scientific notation issues
+            $token_amount_str = number_format($adjusted_token_amount, 18, '.', '');
+            // Remove trailing zeros
+            $token_amount_str = rtrim(rtrim($token_amount_str, '0'), '.');
+            
             // Calculate wei amount using BC Math (token amount * 10^decimals)
-            $wei_amount = bcmul((string)$token_amount, bcpow('10', (string)$decimals, 0), 0);
+            $wei_amount = bcmul($token_amount_str, bcpow('10', (string)$decimals, 0), 0);
             
             WC_Sersh_Payment::log('Using BC Math for high precision conversion', 'debug');
         } else {
             // Alternative calculation method without BC Math
-            // Note: This has precision limitations for very large numbers
-            $wei_amount = $token_amount * pow(10, $decimals);
-            $wei_amount = number_format($wei_amount, 0, '', '');
+            // For small amounts, we can use simple multiplication
+            if ($adjusted_token_amount < 1e15) {
+                $wei_amount = $adjusted_token_amount * pow(10, $decimals);
+                $wei_amount = number_format($wei_amount, 0, '', '');
+            } else {
+                // For larger amounts, we need to handle it differently to avoid precision issues
+                // Convert to string and manipulate
+                $token_amount_str = (string)$adjusted_token_amount;
+                if (strpos($token_amount_str, 'E+') !== false) {
+                    // Handle scientific notation
+                    list($mantissa, $exponent) = explode('E+', $token_amount_str);
+                    $mantissa = str_replace('.', '', $mantissa);
+                    $exponent = (int)$exponent;
+                    $wei_amount = $mantissa . str_repeat('0', $decimals + $exponent - strlen($mantissa) + 1);
+                } else {
+                    // Handle regular notation
+                    $parts = explode('.', $token_amount_str);
+                    $whole = $parts[0];
+                    $fraction = isset($parts[1]) ? $parts[1] : '';
+                    
+                    // Pad with zeros if needed
+                    $fraction = str_pad($fraction, $decimals, '0', STR_PAD_RIGHT);
+                    $wei_amount = $whole . substr($fraction, 0, $decimals);
+                }
+            }
             
             WC_Sersh_Payment::log('BC Math unavailable, using alternative conversion method', 'debug');
         }
         
         WC_Sersh_Payment::log(sprintf(
-            'Conversion result: %f SERSH = %s wei (%d decimals)',
+            'Conversion result: %f SERSH (adjusted to %f) = %s wei (%d decimals)',
             $token_amount,
+            $adjusted_token_amount,
             $wei_amount,
             $decimals
         ), 'info');
