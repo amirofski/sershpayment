@@ -1,0 +1,70 @@
+/**
+ * SERSH Price Display Styles
+ */
+
+/* Common styling for SERSH prices */
+.sersh-price {
+    display: inline-block;
+    font-size: 0.85em;
+    opacity: 0.8;
+    margin-left: 5px;
+    color: #666;
+}
+
+/* Product and shop page styling */
+.woocommerce-shop .sersh-price,
+.woocommerce-product-gallery ~ .summary .sersh-price,
+.products .product .sersh-price {
+    display: block;
+    margin-top: 4px;
+    margin-left: 0;
+    line-height: 1.3;
+}
+
+/* Cart and checkout styling */
+.woocommerce-checkout .sersh-price,
+.woocommerce-cart .sersh-price {
+    display: block;
+    margin-top: 4px;
+    margin-left: 0;
+}
+
+/* Blocks specific styling */
+.wc-block-components-totals-item__value .sersh-price,
+.wc-block-components-price-slider__range-text .sersh-price,
+.wc-block-components-product-price .sersh-price,
+.wc-block-grid__product-price .sersh-price {
+    display: block;
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.wc-block-cart-item__total .sersh-price {
+    display: block;
+    margin-top: 4px;
+}
+
+.wc-block-components-order-summary-item__total-price .sersh-price {
+    display: block;
+    text-align: right;
+    margin-top: 2px;
+}
+
+/* Order details page */
+.sersh-price-total {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f8f8;
+    border-radius: 4px;
+}
+
+.sersh-price-total h3 {
+    margin-top: 0;
+    font-size: 16px;
+}
+
+/* Admin order details */
+.woocommerce-order-data__meta .sersh-price {
+    display: block;
+    margin-top: 5px;
+} 
