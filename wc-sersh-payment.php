@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce SERSH Payment Gateway
  * Plugin URI: https://sershpayment.com
  * Description: Accept SERSH token payments on Binance Smart Chain (BSC) in your WooCommerce store.
- * Version: 1.3.4
+ * Version: 1.4.4
  * Author: SERSH Payment
  * Author URI: https://sershpayment.com
  * Text Domain: wc-sersh-payment
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('WC_SERSH_VERSION', '1.3.4');
+define('WC_SERSH_VERSION', '1.4.4');
 define('WC_SERSH_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WC_SERSH_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WC_SERSH_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -340,7 +340,8 @@ final class WC_Sersh_Payment {
      * Register scripts and styles.
      */
     public function register_scripts() {
-        if (!is_checkout()) {
+        // Enqueue on shop, product, cart and checkout pages
+        if (!is_checkout() && !is_cart() && !is_shop() && !is_product()) {
             return;
         }
 
@@ -370,6 +371,14 @@ final class WC_Sersh_Payment {
             WC_SERSH_VERSION,
             true
         );
+        
+        // Register SERSH price display CSS
+        wp_register_style(
+            'wc-sersh-price-display',
+            WC_SERSH_PLUGIN_URL . 'assets/css/sersh-price-display.css',
+            array(),
+            WC_SERSH_VERSION
+        );
 
         // Localize script with necessary data
         wp_localize_script('wc-sersh-payment', 'wcSershPayment', array(
@@ -385,10 +394,15 @@ final class WC_Sersh_Payment {
             ),
         ));
 
-        // Enqueue scripts
-        wp_enqueue_script('web3');
-        wp_enqueue_script('wc-sersh-payment');
-        wp_enqueue_script('wc-sersh-checkout');
+        // Enqueue scripts - Only enqueue the web3 and payment scripts on checkout
+        if (is_checkout()) {
+            wp_enqueue_script('web3');
+            wp_enqueue_script('wc-sersh-payment');
+            wp_enqueue_script('wc-sersh-checkout');
+        }
+        
+        // Always enqueue the CSS for price display
+        wp_enqueue_style('wc-sersh-price-display');
     }
 
     /**
