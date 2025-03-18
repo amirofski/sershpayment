@@ -141,17 +141,10 @@ class Sersh_Ajax_Handler {
             $user_address = sanitize_text_field($_POST['user_address']);
             $usd_amount = floatval($_POST['amount']);
 
-            // Get gateway instance
-            $gateway = new WC_Gateway_Sersh();
-            
-            // Convert USD amount to SERSH tokens using the updated method
-            $token_amount = $this->convert_usd_to_tokens($usd_amount, $gateway);
-            
-            // Log the conversion for debugging
+            // Log the amount for debugging
             WC_Sersh_Payment::log(sprintf(
-                'Converting %f USD to %f SERSH tokens',
-                $usd_amount,
-                $token_amount
+                'Processing payment signature for %f USD',
+                $usd_amount
             ), 'debug');
             
             // Getting user ID from WordPress
@@ -167,11 +160,8 @@ class Sersh_Ajax_Handler {
             require_once WC_SERSH_PLUGIN_DIR . 'includes/class-sersh-payment-signer.php';
             $signer = new Sersh_Payment_Signer();
             
-            // Convert token amount to wei (18 decimals)
-            $token_amount_wei = $this->convert_tokens_to_wei($token_amount, $gateway);
-            
-            // Send the token amount in wei to the signature endpoint
-            $result = $signer->generate_payment_signature($user_id, $token_amount_wei, $nonce, $expiry, $user_address);
+            // Send the raw USD amount directly to the signature endpoint
+            $result = $signer->generate_payment_signature($user_id, $usd_amount, $nonce, $expiry, $user_address);
             
             if ($result['success']) {
                 wp_send_json_success($result['data']);
