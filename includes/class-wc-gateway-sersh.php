@@ -1889,7 +1889,19 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
      * @param WC_Order $order
      */
     public function display_sersh_price_in_frontend_order($order) {
+        // Check if we're on the order-received page and if we've already displayed this
+        static $displayed_sersh_price = false;
+        
+        if ($displayed_sersh_price && is_order_received_page()) {
+            return;
+        }
+        
         if (!$this->is_available()) {
+            return;
+        }
+        
+        // If payment method is not SERSH, don't display
+        if ($order->get_payment_method() !== $this->id) {
             return;
         }
         
@@ -1934,5 +1946,10 @@ class WC_Gateway_Sersh extends WC_Payment_Gateway {
             </p>
         </div>
         <?php
+        
+        // Mark as displayed if we're on the order-received page
+        if (is_order_received_page()) {
+            $displayed_sersh_price = true;
+        }
     }
 } 

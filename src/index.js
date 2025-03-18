@@ -190,6 +190,7 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
                     }),
                     signal: controller.signal
                 });
+                console.log(response);
 
                 clearTimeout(timeoutId);
 
@@ -204,84 +205,173 @@ const PaymentMethodContent = ({ eventRegistration, emitResponse }) => {
 
                 // Process the payment with the smart contract
                 const { message, signature, orderId } = signatureData.data;
+                console.log('Signature data returned from API:', signatureData.data);
+                
+                // Validate that userId is present and properly formatted
+                if (!message.userId || typeof message.userId !== 'string' || message.userId.trim() === '') {
+                    console.error('Invalid userId received from API:', message.userId);
+                    throw new Error('Invalid user ID received from server. Please try again or contact support.');
+                }
+                
                 const paymentContract = new web3.eth.Contract(
                     PaymentABI,
                     settings.paymentAddress
                 );
-                console.log(settings);
+                console.log('Payment settings:', settings);
                 const tokenContract = new web3.eth.Contract(
                     ERC20ABI,
                     settings.tokenAddress
                 );
 
-                // Get the amount value from message.amount
-                const tokenAmount = message.amount;
+                // Get the amount value from message.amount and ensure it's properly formatted
+                let tokenAmount = message.amount;
+                
+                // Ensure tokenAmount is a string (not a number) to avoid scientific notation issues
+                if (typeof tokenAmount === 'number') {
+                    tokenAmount = tokenAmount.toString();
+                }
+                
+                // Log the token amount for debugging
+                console.log('Token amount from API:', tokenAmount);
                 
                 // The tokenAmount is the exact value returned from the API,
                 // which is already converted to the correct denomination for payment
                 
                 const allowance = await tokenContract.methods.allowance(walletAddress, settings.paymentAddress).call();
-                console.log({
-                    allowance,
-                    amount: tokenAmount
-                });
+                console.log('Current allowance:', allowance);
+                console.log('Required amount:', tokenAmount);
 
+                // Check if we need a new approval
                 if (web3.utils.toBN(allowance).lt(web3.utils.toBN(tokenAmount))) {
-                    const tx = await tokenContract.methods
-                        .approve(settings.paymentAddress, tokenAmount)
-                        .send({ from: walletAddress });
-
-                    console.log({
-                        tx,
-                    });
-                }
-
-                const tx = await paymentContract.methods
-                    .paySubscription(message.userId, tokenAmount, message.nonce, message.expiry, signature)
-                    .send({ from: walletAddress });
-
-                // Explicitly save transaction hash via AJAX to ensure it's recorded properly
-                try {
-                    // console.log('Saving transaction hash via AJAX:', tx.transactionHash, 'for order:', orderId);
-                    const verifyController = new AbortController();
-                    const verifyTimeoutId = setTimeout(() => verifyController.abort(), 60000); // 30 second timeout
+                    console.log('Approval needed. Requesting token approval...');
                     
-                    const verifyResponse = await fetch(settings.ajaxUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: new URLSearchParams({
-                            action: 'wc_sersh_verify_payment',
-                            nonce: settings.nonce,
-                            tx_hash: tx.transactionHash,
-                            user_address: walletAddress
-                        }),
-                        signal: verifyController.signal
-                    });
-                    
-                    clearTimeout(verifyTimeoutId);
-                    
-                    if (!verifyResponse.ok) {
-                        console.error(`Verification response failed with status ${verifyResponse.status}: ${verifyResponse.statusText}`);
+                    try {
+                        // Option 1: Approve exact amount
+                        let approvalAmount = tokenAmount;
+                        
+                        // Option 2: Use a smaller fixed approval amount if token amount is very large
+                        // This can reduce gas fees and chance of failure
+                        if (web3.utils.toBN(tokenAmount).gt(web3.utils.toBN('1000000000000000000000'))) { // > 1000 tokens with 18 decimals
+                            // Approve just double the needed amount instead of the full amount
+                            // This will work for the current transaction but might need to be approved again later
+                            approvalAmount = web3.utils.toBN(tokenAmount).mul(web3.utils.toBN('2')).toString();
+                            console.log('Using smaller approval amount to reduce gas fees:', approvalAmount);
+                        }
+                        
+                        // Get gas estimate with a buffer
+                        const gasEstimate = await tokenContract.methods
+                            .approve(settings.paymentAddress, approvalAmount)
+                            .estimateGas({ from: walletAddress });
+                            
+                        console.log('Gas estimate for approval:', gasEstimate);
+                        
+                        // Add 20% buffer to gas estimate
+                        const gasLimit = Math.floor(gasEstimate * 1.2);
+                        
+                        // Request approval with optimized gas settings
+                        const tx = await tokenContract.methods
+                            .approve(settings.paymentAddress, approvalAmount)
+                            .send({ 
+                                from: walletAddress,
+                                gas: gasLimit
+                            });
+
+                        console.log('Approval transaction successful:', tx.transactionHash);
+                    } catch (error) {
+                        console.error('Error during token approval:', error);
+                        alert('There was an error approving the token transaction. Please try again with a lower amount or contact support.');
+                        return;
                     }
-                } catch (verifyError) {
-                    console.error('Error verifying transaction:', verifyError);
-                    // Continue with checkout even if verification has an error
-                    // We don't want to block the user if only the verification fails
+                } else {
+                    console.log('Sufficient allowance already exists, skipping approval');
                 }
 
-                return {
-                    type: 'success',
-                    meta: {
-                        paymentMethodData: {
-                            user_address: walletAddress,
-                            transaction_hash: tx.transactionHash,
-                            user_id: message.userId,
-                            // order_id: orderId.toString(), // Convert to string to ensure correct type
+                try {
+                    console.log('Executing payment with subscription...');
+                    
+                    // Get gas estimate for the payment transaction
+                    const paymentGasEstimate = await paymentContract.methods
+                        .paySubscription(message.userId, tokenAmount, message.nonce, message.expiry, signature)
+                        .estimateGas({ from: walletAddress });
+                        
+                    console.log('Gas estimate for payment:', paymentGasEstimate);
+                    
+                    // Add 20% buffer to gas estimate
+                    const paymentGasLimit = Math.floor(paymentGasEstimate * 1.2);
+                    
+                    // Execute the payment with optimized gas settings
+                    // Wrap this in a try-catch to handle user rejection or cancellation
+                    let tx;
+                    try {
+                        tx = await paymentContract.methods
+                            .paySubscription(message.userId, tokenAmount, message.nonce, message.expiry, signature)
+                            .send({ 
+                                from: walletAddress,
+                                gas: paymentGasLimit
+                            });
+                    } catch (txError) {
+                        // Check for user rejection
+                        if (txError.code === 4001 || // MetaMask user rejected
+                            txError.message.includes('User denied') || 
+                            txError.message.includes('User rejected')) {
+                            console.error('Transaction was rejected by the user');
+                            throw new Error(settings.i18n.paymentCancelled || 'Payment was cancelled. Your order has not been processed.');
+                        }
+                        // Re-throw other errors
+                        throw txError;
+                    }
+
+                    console.log('Payment transaction successful:', tx.transactionHash);
+                    
+                    // Explicitly save transaction hash via AJAX to ensure it's recorded properly
+                    try {
+                        // console.log('Saving transaction hash via AJAX:', tx.transactionHash, 'for order:', orderId);
+                        const verifyController = new AbortController();
+                        const verifyTimeoutId = setTimeout(() => verifyController.abort(), 60000); // 30 second timeout
+                        
+                        const verifyResponse = await fetch(settings.ajaxUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: new URLSearchParams({
+                                action: 'wc_sersh_verify_payment',
+                                nonce: settings.nonce,
+                                tx_hash: tx.transactionHash,
+                                user_address: walletAddress
+                            }),
+                            signal: verifyController.signal
+                        });
+                        console.log(verifyResponse);
+                        clearTimeout(verifyTimeoutId);
+                        
+                        if (!verifyResponse.ok) {
+                            console.error(`Verification response failed with status ${verifyResponse.status}: ${verifyResponse.statusText}`);
+                        }
+                    } catch (verifyError) {
+                        console.error('Error verifying transaction:', verifyError);
+                        // Continue with checkout even if verification has an error
+                        // We don't want to block the user if only the verification fails
+                    }
+
+                    return {
+                        type: 'success',
+                        meta: {
+                            paymentMethodData: {
+                                user_address: walletAddress,
+                                transaction_hash: tx.transactionHash,
+                                user_id: message.userId,
+                                // order_id: orderId.toString(), // Convert to string to ensure correct type
+                            },
                         },
-                    },
-                };
+                    };
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.error('Request timed out after 30 seconds');
+                        throw new Error(settings.i18n.requestTimeout || 'Request timed out. Please try again.');
+                    }
+                    throw error;
+                }
             } catch (error) {
                 if (error.name === 'AbortError') {
                     console.error('Request timed out after 30 seconds');
