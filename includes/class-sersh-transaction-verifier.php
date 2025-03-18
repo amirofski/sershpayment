@@ -74,6 +74,7 @@ class Sersh_Transaction_Verifier {
                 )),
                 'timeout' => 120
             ));
+            error_log('SERSH Payment - Transaction receipt response: ' . print_r($response, true));
 
             if (is_wp_error($response)) {
                 WC_Sersh_Payment::log('RPC Error: ' . $response->get_error_message(), 'error');
@@ -118,15 +119,8 @@ class Sersh_Transaction_Verifier {
                 throw new Exception($transfer_data['message']);
             }
 
-            // TODO: Uncomment this when we have a price feed and discount is applied
-            // // Verify payment amount
-            // $expected_value = $this->convert_fiat_to_tokens($order->get_total());
-            // $actual_value = $transfer_data['amount'];
-            
-            // if ($actual_value < $expected_value) {
-            //     WC_Sersh_Payment::log(sprintf('Insufficient payment: expected %f, got %f', $expected_value, $actual_value), 'error');
-            //     throw new Exception(__('Insufficient payment amount', 'wc-sersh-payment'));
-            // }
+            // Note: We don't need to verify payment amount here as the signature endpoint handles conversion
+            // and the smart contract ensures the correct amount is transferred
 
             $this->log_verification_success($tx_hash, $order_id);
             return array(
@@ -202,73 +196,6 @@ class Sersh_Transaction_Verifier {
             'success' => false,
             'message' => __('No valid token transfer found', 'wc-sersh-payment')
         );
-    }
-
-    /**
-     * Convert fiat amount to token amount using price feed
-     *
-     * @param float $fiat_amount Amount in fiat currency
-     * @return float
-     */
-    private function convert_fiat_to_tokens($fiat_amount) {
-        $gateway = new WC_Gateway_Sersh();
-        $price_feed_url = $gateway->get_option('price_feed_url');
-        
-        if (empty($price_feed_url)) {
-            WC_Sersh_Payment::log('No price feed URL configured, using 1:1 conversion', 'warning');
-            return $fiat_amount;
-        }
-
-        try {
-            $response = wp_remote_get($price_feed_url, array(
-                'timeout' => 120,
-                'headers' => array(
-                    'Accept' => 'application/json'
-                )
-            ));
-
-            if (is_wp_error($response)) {
-                throw new Exception($response->get_error_message());
-            }
-
-            $price_data = json_decode(wp_remote_retrieve_body($response), true);
-            
-            // Validate the response structure
-            if (!isset($price_data['quotes']) || 
-                !is_array($price_data['quotes']) || 
-                empty($price_data['quotes']) ||
-                !isset($price_data['quotes'][0]['price'])) {
-                throw new Exception('Invalid price feed response format');
-            }
-
-            // Get the USD price from the quotes array
-            $token_price = floatval($price_data['quotes'][0]['price']);
-            
-            if ($token_price <= 0) {
-                throw new Exception('Invalid token price: ' . $token_price);
-            }
-
-            // Calculate tokens amount (fiat amount divided by token price)
-            $tokens_amount = $fiat_amount / $token_price;
-
-            WC_Sersh_Payment::log(sprintf(
-                'Price conversion: %f USD = %f SERSH (price: %f USD/SERSH)',
-                $fiat_amount,
-                $tokens_amount,
-                $token_price
-            ), 'info');
-
-            return $tokens_amount;
-
-        } catch (Exception $e) {
-            WC_Sersh_Payment::log('Price conversion failed: ' . $e->getMessage(), 'error');
-            throw new Exception(
-                sprintf(
-                    __('Unable to convert price: %s', 'wc-sersh-payment'),
-                    $e->getMessage()
-                )
-            );
-        }
     }
 
     /**
