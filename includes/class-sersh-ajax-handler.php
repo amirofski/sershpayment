@@ -149,6 +149,17 @@ class Sersh_Ajax_Handler {
             
             // Getting user ID from WordPress
             $user_id = get_current_user_id();
+            
+            // Handle anonymous users and ensure userId is a string
+            // The smart contract expects a non-empty string for userId
+            if ($user_id === 0) {
+                // For guest users, generate a unique ID using the session or a random value
+                $user_id = 'guest_' . substr(md5(uniqid(wp_get_session_token(), true)), 0, 10);
+                WC_Sersh_Payment::log('Anonymous user detected, generated temporary ID: ' . $user_id, 'debug');
+            } else {
+                // Convert to string format for the smart contract
+                $user_id = get_current_user_id();
+            }
 
             // Set expiry to 1 hour from now
             $expiry = time() + 3600;
