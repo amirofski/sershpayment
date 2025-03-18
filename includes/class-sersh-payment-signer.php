@@ -328,6 +328,7 @@ class Sersh_Payment_Signer {
     
             // Send the signature request
             $response = $this->send_signature_request($user_id, $amount, $nonce, $expiry, $user_address);
+            error_log('SERSH Payment - Signature request response: ' . print_r($response, true));
             
             // Check if the request was successful
             if (is_wp_error($response)) {
@@ -360,14 +361,30 @@ class Sersh_Payment_Signer {
     }
 
     private function send_signature_request($user_id, $amount, $nonce, $expiry, $user_address) {
+        // Store original amount for logging
+        $original_amount = $amount;
+        
+        // Ensure amount is a proper decimal value (not multiplied by 100)
+        // If the amount is already in cents, divide by 100 to get dollars
+        if ($amount > 100 && strpos($amount, '.') === false) {
+            $amount = $amount / 100;
+            error_log('SERSH Payment - Converted amount from cents: ' . $original_amount . ' to dollars: ' . $amount);
+        }
+
+        // Format amount with 2 decimal places as per WooCommerce settings
+        $formatted_amount = number_format((float)$amount, 2, '.', '');
+
+        error_log('SERSH Payment - Sending signature request with amount: ' . $formatted_amount . ' USD');
+
         // Prepare the request data in the exact format required
         $request_data = json_encode(array(
-            'userId' => $user_id,
-            'price' => $amount,
+            'userId' => (string)$user_id,
+            'price' => $formatted_amount,
             'nonce' => $nonce,
             'expiry' => $expiry,
             'address' => $user_address
         ));
+        error_log('SERSH Payment - Request data: ' . $request_data);
 
         $response = wp_remote_post(
             'https://purple-queen-f675.amir-devel.workers.dev/',
@@ -381,6 +398,20 @@ class Sersh_Payment_Signer {
                 'body' => $request_data
             )
         );
+        
+        // Log the raw response for debugging
+        error_log('SERSH Payment - Signature request raw response: ' . print_r($response, true));
+        
+        // If successful, log the response body for debugging the token amount
+        if (!is_wp_error($response)) {
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            
+            if (isset($data['message']) && isset($data['message']['amount'])) {
+                error_log('SERSH Payment - Signature response token amount: ' . $data['message']['amount'] . 
+                    ' (for USD amount: ' . $formatted_amount . ')');
+            }
+        }
 
         return $response;
     }
