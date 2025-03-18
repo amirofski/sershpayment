@@ -1,4 +1,4 @@
-node_modules
+node_modules\
 sersh-payment.zip
 ./node_modules
 ./dist
@@ -12,3 +12,8 @@ coverage
 logs
 reports
 node_modules/.package-lock.json
+node_modules/
+node_modules
+./node_modules\
+./node_modules/
+
