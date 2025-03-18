@@ -344,21 +344,10 @@ class Sersh_Payment_Signer {
 
             error_log('SERSH Payment - Payment signature generated successfully');
             
-            // Restructure the data to match what the frontend expects
-            // The worker API returns messageHash and signature, but the frontend expects
-            // message object with userId, price, nonce, expiry properties
+            // Return the response data directly as it's already in the required format
             return array(
                 'success' => true,
-                'data' => array(
-                    'message' => array(
-                        'userId' => $user_id,
-                        'price' => $amount,
-                        'nonce' => $nonce,
-                        'expiry' => $expiry
-                    ),
-                    'signature' => $data['signature'],
-                    'messageHash' => $data['messageHash']
-                )
+                'data' => $data
             );
 
         } catch (Exception $e) {
@@ -371,19 +360,25 @@ class Sersh_Payment_Signer {
     }
 
     private function send_signature_request($user_id, $amount, $nonce, $expiry, $user_address) {
+        // Prepare the request data in the exact format required
+        $request_data = json_encode(array(
+            'userId' => $user_id,
+            'price' => $amount,
+            'nonce' => $nonce,
+            'expiry' => $expiry,
+            'address' => $user_address
+        ));
+
         $response = wp_remote_post(
             'https://purple-queen-f675.amir-devel.workers.dev/',
             array(
                 'method' => 'POST',
-                'timeout'   => 120, // Increase timeout to 120 seconds
-                'blocking'  => true, // Ensure we wait for a response
-                'body' => array(
-                    'userId' => $user_id,
-                    'price' => $amount,
-                    'nonce' => $nonce,
-                    'expiry' => $expiry,
-                    'address' => $user_address
-                )   
+                'timeout' => 120, // Increase timeout to 120 seconds
+                'blocking' => true, // Ensure we wait for a response
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                ),
+                'body' => $request_data
             )
         );
 
